@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { syncLogs } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const db = require('./db');
@@ -379,6 +380,15 @@ app.delete('/api/alerts/:id', (req, res) => {
         res.json({ success: true });
     });
 });
+
+// Production: Serve static frontend files
+if (process.env.NODE_ENV === 'production') {
+    const publicPath = path.join(__dirname, 'public');
+    app.use(express.static(publicPath));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(publicPath, 'index.html'));
+    });
+}
 
 // Start Server
 app.listen(PORT, () => {

@@ -66,48 +66,40 @@
 
 ## 🚀 快速部署
 
-### 1. 克隆项目
+### 方式一：Docker 镜像部署（推荐）
+
+只需一个配置文件即可部署：
 
 ```bash
+# 下载部署配置
+curl -O https://raw.githubusercontent.com/GLH08/token-monitor/main/deploy/docker-compose.yml
+
+# 编辑配置（修改数据库连接和密码）
+nano docker-compose.yml
+
+# 启动
+docker compose up -d
+```
+
+访问：`http://服务器IP:3000`
+
+### 方式二：源码部署
+
+```bash
+# 克隆项目
 git clone https://github.com/GLH08/token-monitor.git
 cd token-monitor
-```
 
-### 2. 配置环境变量
+# 编辑配置
+nano docker-compose.yml
 
-编辑 `docker-compose.yml`：
-
-```yaml
-services:
-  monitor-server:
-    environment:
-      # 必填：New API 数据库连接
-      - DATABASE_URL=mysql://用户名:密码@数据库IP:3306/new-api
-      
-      # 必填：Web 界面登录密码
-      - ACCESS_PASSWORD=your_secure_password
-      
-      # 可选：Telegram 通知
-      - TELEGRAM_BOT_TOKEN=your_bot_token
-      - TELEGRAM_CHAT_ID=your_chat_id
-      
-      # 可选：飞书通知
-      - FEISHU_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
-      
-      # 可选：企业微信通知
-      - WECOM_WEBHOOK=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
-```
-
-### 3. 启动服务
-
-```bash
+# 构建并启动
 docker compose up -d --build
 ```
 
-### 4. 访问系统
-
-- **Web 界面**: `http://服务器IP:5173`
-- **API 服务**: `http://服务器IP:3002`
+访问：
+- Web 界面: `http://服务器IP:5173`
+- API 服务: `http://服务器IP:3002`
 
 ## 📝 配置说明
 
