@@ -381,8 +381,13 @@ app.delete('/api/alerts/:id', (req, res) => {
 if (process.env.NODE_ENV === 'production') {
     const publicPath = path.join(__dirname, 'public');
     app.use(express.static(publicPath));
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(publicPath, 'index.html'));
+    // Fallback for SPA routing (Express 5 compatible)
+    app.use((req, res, next) => {
+        if (req.method === 'GET' && !req.path.startsWith('/api')) {
+            res.sendFile(path.join(publicPath, 'index.html'));
+        } else {
+            next();
+        }
     });
 }
 
