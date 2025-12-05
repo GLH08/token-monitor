@@ -1,0 +1,39 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Log {
+  id               Int      @id @default(autoincrement())
+  userId           Int      @map("user_id")
+  createdAt        BigInt   @map("created_at")
+  type             Int
+  content          String   @db.Text
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  tokenName        String   @map("token_name")
+  modelName        String   @map("model_name")
+  quota            Int
+  channelId        Int      @map("channel_id")
+  tokenId          Int      @map("token_id")
+  useTime          Int      @map("use_time")
+  isStream         Boolean  @map("is_stream")
+  group            String?
+  other            String?  @db.Text
+
+  @@map("logs")
+  @@index([createdAt])
+  @@index([channelId])
+  @@index([modelName])
+}
+
+model Channel {
+  id   Int    @id @default(autoincrement())
+  name String
+  @@map("channels")
+}

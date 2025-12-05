@@ -1,0 +1,29 @@
+version: '3'
+
+services:
+  monitor-server:
+    build: ./server
+    container_name: monitor-server
+    restart: always
+    environment:
+      # ⚠️ 重要: 请将 127.0.0.1 替换为您部署 new-api 的服务器公网 IP
+      # ⚠️ 确保该服务器的 3306 端口已对外开放 (检查防火墙/安全组)
+      - DATABASE_URL=mysql://new_api_user:NewApiUserPass123@127.0.0.1:3306/new-api
+      - PORT=3001
+      - ACCESS_PASSWORD=your_secure_password
+      - TELEGRAM_BOT_TOKEN=your_bot_token
+      - TELEGRAM_CHAT_ID=your_chat_id
+      # 多渠道通知配置
+      - FEISHU_WEBHOOK=
+      - WECOM_WEBHOOK=
+    ports:
+      - "3002:3001"
+    volumes:
+      - ./data:/app/data
+
+  monitor-web:
+    build: ./web
+    container_name: monitor-web
+    restart: always
+    ports:
+      - "5173:5173"
