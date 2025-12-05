@@ -138,8 +138,6 @@ const Alerts = () => {
         start_time: '00:00',
         end_time: '23:59',
         notify_telegram: true,
-        notify_feishu: false,
-        notify_wecom: false,
         trigger_action: 'notify'
     });
 
@@ -186,8 +184,6 @@ const Alerts = () => {
                 start_time: formData.start_time,
                 end_time: formData.end_time,
                 notify_telegram: formData.notify_telegram,
-                notify_feishu: formData.notify_feishu,
-                notify_wecom: formData.notify_wecom,
                 trigger_action: formData.trigger_action
             };
 
@@ -226,8 +222,6 @@ const Alerts = () => {
             start_time: alert.start_time || '00:00',
             end_time: alert.end_time || '23:59',
             notify_telegram: !!alert.notify_telegram,
-            notify_feishu: !!alert.notify_feishu,
-            notify_wecom: !!alert.notify_wecom,
             trigger_action: alert.trigger_action || 'notify'
         });
         setEditingId(alert.id);
@@ -255,8 +249,6 @@ const Alerts = () => {
             start_time: '00:00',
             end_time: '23:59',
             notify_telegram: true,
-            notify_feishu: false,
-            notify_wecom: false,
             trigger_action: 'notify'
         });
     };
@@ -401,36 +393,15 @@ const Alerts = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">通知渠道</label>
-                                <div className="flex gap-4">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formData.notify_telegram}
-                                            onChange={e => setFormData({ ...formData, notify_telegram: e.target.checked })}
-                                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                                        />
-                                        <span className="text-sm text-gray-700">Telegram</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formData.notify_feishu}
-                                            onChange={e => setFormData({ ...formData, notify_feishu: e.target.checked })}
-                                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                                        />
-                                        <span className="text-sm text-gray-700">飞书 (Feishu)</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formData.notify_wecom}
-                                            onChange={e => setFormData({ ...formData, notify_wecom: e.target.checked })}
-                                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                                        />
-                                        <span className="text-sm text-gray-700">企业微信 (WeCom)</span>
-                                    </label>
-                                </div>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.notify_telegram}
+                                        onChange={e => setFormData({ ...formData, notify_telegram: e.target.checked })}
+                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                                    />
+                                    <span className="text-sm text-gray-700">启用 Telegram 通知</span>
+                                </label>
                             </div>
 
                             <div>
@@ -520,11 +491,11 @@ const Alerts = () => {
                                             <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">周期: {getPeriodDisplay()}</span>
                                             <span className="bg-gray-50 px-2 py-0.5 rounded">生效时段: {alert.start_time}-{alert.end_time}</span>
                                         </div>
-                                        <div className="flex gap-2 mt-2">
-                                            {alert.notify_telegram === 1 && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">Telegram</span>}
-                                            {alert.notify_feishu === 1 && <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Feishu</span>}
-                                            {alert.notify_wecom === 1 && <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">WeCom</span>}
-                                        </div>
+                                        {alert.notify_telegram === 1 && (
+                                            <div className="flex gap-2 mt-2">
+                                                <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">Telegram 通知</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-3">

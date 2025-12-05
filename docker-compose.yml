@@ -13,9 +13,6 @@ services:
       - ACCESS_PASSWORD=your_secure_password
       - TELEGRAM_BOT_TOKEN=your_bot_token
       - TELEGRAM_CHAT_ID=your_chat_id
-      # 多渠道通知配置
-      - FEISHU_WEBHOOK=
-      - WECOM_WEBHOOK=
     ports:
       - "3002:3001"
     volumes:

@@ -23,27 +23,13 @@ class Notifier {
     constructor() {
         this.telegramToken = process.env.TELEGRAM_BOT_TOKEN;
         this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
-        this.feishuWebhook = process.env.FEISHU_WEBHOOK;
-        this.wecomWebhook = process.env.WECOM_WEBHOOK;
-    }
-
-    async send(title, message, level = 'info') {
-        const promises = [];
-
-        if (this.telegramToken && this.telegramChatId) {
-            promises.push(this.sendTelegram(title, message));
-        }
-        if (this.feishuWebhook) {
-            promises.push(this.sendFeishu(title, message, level));
-        }
-        if (this.wecomWebhook) {
-            promises.push(this.sendWeCom(title, message, level));
-        }
-
-        await Promise.allSettled(promises);
     }
 
     async sendTelegram(title, message) {
+        if (!this.telegramToken || !this.telegramChatId) {
+            console.warn("Telegram not configured, skipping notification");
+            return;
+        }
         try {
             const text = `*${title}*\n\n${message}`;
             await axios.post(`https://api.telegram.org/bot${this.telegramToken}/sendMessage`, {
@@ -53,42 +39,6 @@ class Notifier {
             });
         } catch (error) {
             console.error("Telegram notification failed:", error.message);
-        }
-    }
-
-    async sendFeishu(title, message, level) {
-        try {
-            // Feishu Interactive Card
-            const cardColor = level === 'error' ? 'red' : (level === 'warning' ? 'orange' : 'blue');
-            const payload = {
-                msg_type: "interactive",
-                card: {
-                    header: {
-                        title: { tag: "plain_text", content: title },
-                        template: cardColor
-                    },
-                    elements: [
-                        { tag: "div", text: { tag: "lark_md", content: message } }
-                    ]
-                }
-            };
-            await axios.post(this.feishuWebhook, payload);
-        } catch (error) {
-            console.error("Feishu notification failed:", error.message);
-        }
-    }
-
-    async sendWeCom(title, message, level) {
-        try {
-            // WeCom Markdown
-            const color = level === 'error' ? 'warning' : 'info'; // WeCom markdown supports limited colors
-            const text = `### ${title}\n${message}`;
-            await axios.post(this.wecomWebhook, {
-                msgtype: "markdown",
-                markdown: { content: text }
-            });
-        } catch (error) {
-            console.error("WeCom notification failed:", error.message);
         }
     }
 }
@@ -297,12 +247,6 @@ async function checkAlerts() {
 
                     if (alert.notify_telegram) {
                         await notifier.sendTelegram("🚨 Token Alert Triggered", message);
-                    }
-                    if (alert.notify_feishu) {
-                        await notifier.sendFeishu("🚨 Token Alert Triggered", message, 'warning');
-                    }
-                    if (alert.notify_wecom) {
-                        await notifier.sendWeCom("🚨 Token Alert Triggered", message, 'warning');
                     }
 
                     await updateLastTriggered(alert.id);

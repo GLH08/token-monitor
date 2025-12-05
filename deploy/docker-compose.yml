@@ -17,11 +17,9 @@ services:
       # Web 登录密码
       - ACCESS_PASSWORD=your_password
 
-      # ========== 通知配置 (可选) ==========
+      # ========== Telegram 通知 (可选) ==========
       - TELEGRAM_BOT_TOKEN=
       - TELEGRAM_CHAT_ID=
-      - FEISHU_WEBHOOK=
-      - WECOM_WEBHOOK=
     ports:
       - "3000:3000"
     volumes:

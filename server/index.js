@@ -303,9 +303,9 @@ app.get('/api/alerts', (req, res) => {
 
 // API: Create Alert
 app.post('/api/alerts', (req, res) => {
-    const { name, rule, enabled, start_time, end_time, notify_telegram, notify_feishu, notify_wecom, trigger_action } = req.body;
+    const { name, rule, enabled, start_time, end_time, notify_telegram, trigger_action } = req.body;
     db.run(
-        "INSERT INTO alerts (name, rule, enabled, start_time, end_time, notify_telegram, notify_feishu, notify_wecom, trigger_action) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO alerts (name, rule, enabled, start_time, end_time, notify_telegram, trigger_action) VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
             name,
             JSON.stringify(rule),
@@ -313,8 +313,6 @@ app.post('/api/alerts', (req, res) => {
             start_time,
             end_time,
             notify_telegram ? 1 : 0,
-            notify_feishu ? 1 : 0,
-            notify_wecom ? 1 : 0,
             trigger_action || 'notify'
         ],
         function (err) {
@@ -329,9 +327,9 @@ app.post('/api/alerts', (req, res) => {
 
 // API: Update Alert
 app.put('/api/alerts/:id', (req, res) => {
-    const { name, rule, enabled, start_time, end_time, notify_telegram, notify_feishu, notify_wecom, trigger_action } = req.body;
+    const { name, rule, enabled, start_time, end_time, notify_telegram, trigger_action } = req.body;
     db.run(
-        "UPDATE alerts SET name = ?, rule = ?, enabled = ?, start_time = ?, end_time = ?, notify_telegram = ?, notify_feishu = ?, notify_wecom = ?, trigger_action = ? WHERE id = ?",
+        "UPDATE alerts SET name = ?, rule = ?, enabled = ?, start_time = ?, end_time = ?, notify_telegram = ?, trigger_action = ? WHERE id = ?",
         [
             name,
             JSON.stringify(rule),
@@ -339,8 +337,6 @@ app.put('/api/alerts/:id', (req, res) => {
             start_time,
             end_time,
             notify_telegram ? 1 : 0,
-            notify_feishu ? 1 : 0,
-            notify_wecom ? 1 : 0,
             trigger_action || 'notify',
             req.params.id
         ],
