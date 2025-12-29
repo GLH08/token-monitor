@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { fetchChannelsOverview, fetchChannelPerformance } from './api';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { Server, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 
 const TYPE_MAP = {
@@ -9,8 +8,10 @@ const TYPE_MAP = {
     25: 'Moonshot', 31: 'DeepSeek', 33: 'Doubao', 40: 'Ollama'
 };
 
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+
 const Channels = () => {
-    const [overview, setOverview] = useState({ channels: [], statusCount: {}, total: 0 });
+    const [overview, setOverview] = useState({ channels: [], statusCount: { enabled: 0, disabled: 0, autoDisabled: 0 }, total: 0 });
     const [performance, setPerformance] = useState([]);
     const [period, setPeriod] = useState('24h');
     const [loading, setLoading] = useState(true);
@@ -25,25 +26,25 @@ const Channels = () => {
             const start_ts = now - periodMap[period];
 
             const [overviewData, perfData] = await Promise.all([
-                fetchChannelsOverview().catch(() => ({ channels: [], statusCount: {}, total: 0 })),
-                fetchChannelPerformance({ start_ts, end_ts: now }).catch(() => [])
+                fetchChannelsOverview().catch(e => {
+                    console.error('fetchChannelsOverview error:', e);
+                    return { channels: [], statusCount: { enabled: 0, disabled: 0, autoDisabled: 0 }, total: 0 };
+                }),
+                fetchChannelPerformance({ start_ts, end_ts: now }).catch(e => {
+                    console.error('fetchChannelPerformance error:', e);
+                    return [];
+                })
             ]);
 
-            setOverview(overviewData || { channels: [], statusCount: {}, total: 0 });
+            setOverview(overviewData || { channels: [], statusCount: { enabled: 0, disabled: 0, autoDisabled: 0 }, total: 0 });
             setPerformance(perfData || []);
         } catch (error) {
             console.error('Load data error:', error);
-            setOverview({ channels: [], statusCount: {}, total: 0 });
-            setPerformance([]);
         }
         setLoading(false);
     };
 
-    const pieData = [
-        { name: '正常', value: overview.statusCount.enabled || 0, color: '#10b981' },
-        { name: '手动禁用', value: overview.statusCount.disabled || 0, color: '#f59e0b' },
-        { name: '自动禁用', value: overview.statusCount.autoDisabled || 0, color: '#ef4444' }
-    ].filter(d => d.value > 0);
+    const maxRequests = Math.max(...(performance.map(p => p.requests) || [1]), 1);
 
     return (
         <div className="space-y-6">
@@ -72,7 +73,7 @@ const Channels = () => {
                             <Server className="text-slate-600" size={24} />
                         </div>
                         <div>
-                            <div className="text-3xl font-bold text-slate-800">{overview.total}</div>
+                            <div className="text-3xl font-bold text-slate-800">{overview.total || 0}</div>
                             <div className="text-slate-500 text-sm">总渠道数</div>
                         </div>
                     </div>
@@ -83,7 +84,7 @@ const Channels = () => {
                             <CheckCircle className="text-green-600" size={24} />
                         </div>
                         <div>
-                            <div className="text-3xl font-bold text-green-600">{overview.statusCount.enabled || 0}</div>
+                            <div className="text-3xl font-bold text-green-600">{overview.statusCount?.enabled || 0}</div>
                             <div className="text-slate-500 text-sm">正常运行</div>
                         </div>
                     </div>
@@ -94,7 +95,7 @@ const Channels = () => {
                             <XCircle className="text-yellow-600" size={24} />
                         </div>
                         <div>
-                            <div className="text-3xl font-bold text-yellow-600">{overview.statusCount.disabled || 0}</div>
+                            <div className="text-3xl font-bold text-yellow-600">{overview.statusCount?.disabled || 0}</div>
                             <div className="text-slate-500 text-sm">手动禁用</div>
                         </div>
                     </div>
@@ -105,39 +106,78 @@ const Channels = () => {
                             <AlertTriangle className="text-red-600" size={24} />
                         </div>
                         <div>
-                            <div className="text-3xl font-bold text-red-600">{overview.statusCount.autoDisabled || 0}</div>
+                            <div className="text-3xl font-bold text-red-600">{overview.statusCount?.autoDisabled || 0}</div>
                             <div className="text-slate-500 text-sm">自动禁用</div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* 图表区域 */}
+            {/* 简洁进度条图表 */}
             <div className="grid grid-cols-2 gap-6">
+                {/* 渠道状态分布 */}
                 <div className="bg-white p-6 rounded-xl border shadow-sm">
                     <h2 className="text-lg font-bold text-slate-800 mb-4">渠道状态分布</h2>
-                    <div className="h-64">
-                        <ResponsiveContainer>
-                            <PieChart>
-                                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, value }) => `${name}: ${value}`}>
-                                    {pieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                                </Pie>
-                                <Tooltip />
-                            </PieChart>
-                        </ResponsiveContainer>
+                    <div className="space-y-4">
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm text-slate-700">正常运行</span>
+                                <span className="text-sm font-mono text-green-600">{overview.statusCount?.enabled || 0}</span>
+                            </div>
+                            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-green-500 rounded-full transition-all duration-500"
+                                    style={{ width: overview.total ? `${((overview.statusCount?.enabled || 0) / overview.total) * 100}%` : '0%' }} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm text-slate-700">手动禁用</span>
+                                <span className="text-sm font-mono text-yellow-600">{overview.statusCount?.disabled || 0}</span>
+                            </div>
+                            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                                    style={{ width: overview.total ? `${((overview.statusCount?.disabled || 0) / overview.total) * 100}%` : '0%' }} />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm text-slate-700">自动禁用</span>
+                                <span className="text-sm font-mono text-red-600">{overview.statusCount?.autoDisabled || 0}</span>
+                            </div>
+                            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-red-500 rounded-full transition-all duration-500"
+                                    style={{ width: overview.total ? `${((overview.statusCount?.autoDisabled || 0) / overview.total) * 100}%` : '0%' }} />
+                            </div>
+                        </div>
                     </div>
                 </div>
+
+                {/* 请求量排行 */}
                 <div className="bg-white p-6 rounded-xl border shadow-sm">
                     <h2 className="text-lg font-bold text-slate-800 mb-4">请求量 Top 10</h2>
-                    <div className="h-64">
-                        <ResponsiveContainer>
-                            <BarChart data={performance.slice(0, 10)} layout="vertical">
-                                <XAxis type="number" />
-                                <YAxis dataKey="channelName" type="category" width={100} tick={{ fontSize: 12 }} />
-                                <Tooltip formatter={(v) => v.toLocaleString()} />
-                                <Bar dataKey="requests" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
+                    <div className="space-y-3">
+                        {loading ? (
+                            [...Array(5)].map((_, i) => (
+                                <div key={i} className="animate-pulse">
+                                    <div className="h-4 bg-slate-200 rounded w-full mb-2"></div>
+                                </div>
+                            ))
+                        ) : performance.length === 0 ? (
+                            <div className="text-center text-slate-400 py-8">暂无数据</div>
+                        ) : performance.slice(0, 10).map((ch, i) => (
+                            <div key={ch.channelId}>
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm text-slate-700 truncate max-w-[180px]" title={ch.channelName}>
+                                        {ch.channelName}
+                                    </span>
+                                    <span className="text-sm font-mono text-slate-500">{ch.requests.toLocaleString()}</span>
+                                </div>
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full transition-all duration-500"
+                                        style={{ width: `${(ch.requests / maxRequests) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
@@ -173,6 +213,13 @@ const Channels = () => {
                                         <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-16 ml-auto"></div></td>
                                     </tr>
                                 ))
+                            ) : performance.length === 0 ? (
+                                <tr>
+                                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                                        <Server size={48} className="mx-auto mb-3 opacity-30" />
+                                        <p>暂无渠道数据</p>
+                                    </td>
+                                </tr>
                             ) : performance.map(ch => (
                                 <tr key={ch.channelId} className="hover:bg-slate-50">
                                     <td className="px-4 py-3">

@@ -94,11 +94,10 @@ app.get('/api/analysis', async (req, res) => {
 // ==================== 渠道监控 API ====================
 app.get('/api/channels/overview', async (req, res) => {
     try {
+        // 只查询基本字段，避免字段不存在导致错误
         const channels = await prisma.channel.findMany({
             select: {
-                id: true, name: true, type: true, status: true, weight: true,
-                responseTime: true, testTime: true, balance: true,
-                usedQuota: true, tag: true, priority: true, models: true, group: true
+                id: true, name: true, type: true, status: true
             }
         });
         
@@ -111,6 +110,7 @@ app.get('/api/channels/overview', async (req, res) => {
         
         res.json({ channels, statusCount, total: channels.length });
     } catch (error) {
+        console.error('[API] /channels/overview error:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
