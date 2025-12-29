@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { fetchModelsAnalysis } from './api';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
 import { Cpu, TrendingUp, Zap, DollarSign } from 'lucide-react';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#14b8a6'];
 
 const Models = () => {
     const [data, setData] = useState({ models: [], summary: {} });
@@ -14,18 +14,37 @@ const Models = () => {
 
     const loadData = async () => {
         setLoading(true);
-        const now = Math.floor(Date.now() / 1000);
-        const periodMap = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800 };
-        const start_ts = now - periodMap[period];
-        const result = await fetchModelsAnalysis({ start_ts, end_ts: now });
-        setData(result);
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            const periodMap = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800 };
+            const start_ts = now - periodMap[period];
+            const result = await fetchModelsAnalysis({ start_ts, end_ts: now });
+            setData(result || { models: [], summary: {} });
+        } catch (error) {
+            console.error('Load data error:', error);
+            setData({ models: [], summary: {} });
+        }
         setLoading(false);
     };
 
-    const pieData = data.models.slice(0, 8).map((m, i) => ({
-        name: m.model_name,
-        value: m.tokens,
-        color: COLORS[i % COLORS.length]
+    // 简化模型名称显示
+    const formatModelName = (name) => {
+        if (!name) return '-';
+        // 移除常见前缀
+        let short = name.replace(/^(gpt-|claude-|gemini-|deepseek-|qwen-|glm-)/i, '');
+        // 截断过长名称
+        if (short.length > 20) short = short.slice(0, 18) + '..';
+        return short;
+    };
+
+    // 准备柱状图数据 - Top 10
+    const barData = data.models.slice(0, 10).map((m, i) => ({
+        name: formatModelName(m.model_name),
+        fullName: m.model_name,
+        requests: m.requests,
+        tokens: Math.round(m.tokens / 1000), // 转为 K
+        cost: m.cost,
+        fill: COLORS[i % COLORS.length]
     }));
 
     return (
@@ -95,33 +114,56 @@ const Models = () => {
                 </div>
             </div>
 
-            {/* 图表 */}
+            {/* 图表 - 参考 new-api 风格 */}
             <div className="grid grid-cols-2 gap-6">
                 <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h2 className="text-lg font-bold text-slate-800 mb-4">Token 分布 Top 8</h2>
-                    <div className="h-64">
-                        <ResponsiveContainer>
-                            <PieChart>
-                                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} 
-                                    label={({ name, percent }) => `${name.slice(0, 12)}${name.length > 12 ? '...' : ''}: ${(percent * 100).toFixed(1)}%`}>
-                                    {pieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                                </Pie>
-                                <Tooltip formatter={(v) => v.toLocaleString()} />
-                            </PieChart>
-                        </ResponsiveContainer>
+                    <h2 className="text-lg font-bold text-slate-800 mb-4">请求量 Top 10</h2>
+                    <div className="h-80">
+                        {barData.length > 0 ? (
+                            <ResponsiveContainer>
+                                <BarChart data={barData} layout="vertical" margin={{ left: 10, right: 30 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                    <XAxis type="number" tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                                    <YAxis dataKey="name" type="category" width={90} tick={{ fontSize: 12 }} />
+                                    <Tooltip 
+                                        formatter={(v, name) => [v.toLocaleString(), name === 'requests' ? '请求数' : 'Token(K)']}
+                                        labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                                    />
+                                    <Bar dataKey="requests" name="请求数" radius={[0, 4, 4, 0]}>
+                                        {barData.map((entry, index) => (
+                                            <rect key={index} fill={entry.fill} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400">暂无数据</div>
+                        )}
                     </div>
                 </div>
                 <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h2 className="text-lg font-bold text-slate-800 mb-4">请求量 Top 10</h2>
-                    <div className="h-64">
-                        <ResponsiveContainer>
-                            <BarChart data={data.models.slice(0, 10)} layout="vertical">
-                                <XAxis type="number" />
-                                <YAxis dataKey="model_name" type="category" width={120} tick={{ fontSize: 11 }} />
-                                <Tooltip formatter={(v) => v.toLocaleString()} />
-                                <Bar dataKey="requests" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
+                    <h2 className="text-lg font-bold text-slate-800 mb-4">Token 消耗 Top 10 (K)</h2>
+                    <div className="h-80">
+                        {barData.length > 0 ? (
+                            <ResponsiveContainer>
+                                <BarChart data={barData} layout="vertical" margin={{ left: 10, right: 30 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                                    <XAxis type="number" tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}M` : `${v}K`} />
+                                    <YAxis dataKey="name" type="category" width={90} tick={{ fontSize: 12 }} />
+                                    <Tooltip 
+                                        formatter={(v) => [`${v.toLocaleString()}K`, 'Token']}
+                                        labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                                    />
+                                    <Bar dataKey="tokens" name="Token" fill="#8b5cf6" radius={[0, 4, 4, 0]}>
+                                        {barData.map((entry, index) => (
+                                            <rect key={index} fill={COLORS[(index + 3) % COLORS.length]} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400">暂无数据</div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -155,9 +197,20 @@ const Models = () => {
                                         <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-16 ml-auto"></div></td>
                                     </tr>
                                 ))
+                            ) : data.models.length === 0 ? (
+                                <tr>
+                                    <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
+                                        <Cpu size={48} className="mx-auto mb-3 opacity-30" />
+                                        <p>暂无模型数据</p>
+                                    </td>
+                                </tr>
                             ) : data.models.map((m, i) => (
                                 <tr key={i} className="hover:bg-slate-50">
-                                    <td className="px-4 py-3 font-medium text-slate-800">{m.model_name}</td>
+                                    <td className="px-4 py-3">
+                                        <div className="font-medium text-slate-800" title={m.model_name}>
+                                            {m.model_name}
+                                        </div>
+                                    </td>
                                     <td className="px-4 py-3 text-right font-mono">{m.requests.toLocaleString()}</td>
                                     <td className="px-4 py-3 text-right font-mono">{m.tokens.toLocaleString()}</td>
                                     <td className="px-4 py-3 text-right font-mono text-green-600">${m.cost.toFixed(4)}</td>

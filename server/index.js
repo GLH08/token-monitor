@@ -233,27 +233,31 @@ app.get('/api/tokens/overview', async (req, res) => {
                 id: true, name: true, status: true,
                 remainQuota: true, usedQuota: true,
                 unlimitedQuota: true, expiredTime: true,
-                accessedTime: true, group: true, usedCount: true
+                accessedTime: true, group: true
             }
         });
         
         const now = Math.floor(Date.now() / 1000);
-        const result = tokens.map(t => ({
-            id: t.id,
-            name: t.name,
-            status: t.status,
-            remainQuota: Number(t.remainQuota),
-            usedQuota: Number(t.usedQuota),
-            unlimitedQuota: t.unlimitedQuota,
-            expiredTime: t.expiredTime ? Number(t.expiredTime) : -1,
-            accessedTime: t.accessedTime ? Number(t.accessedTime) : null,
-            group: t.group,
-            usedCount: t.usedCount || 0,
-            isExpired: t.expiredTime && t.expiredTime !== BigInt(-1) && Number(t.expiredTime) < now,
-            isExhausted: !t.unlimitedQuota && t.remainQuota <= 0,
-            usagePercent: t.unlimitedQuota ? null : 
-                (Number(t.usedQuota) / (Number(t.usedQuota) + Number(t.remainQuota)) * 100).toFixed(1)
-        }));
+        const result = tokens.map(t => {
+            const usedQuota = Number(t.usedQuota) || 0;
+            const remainQuota = Number(t.remainQuota) || 0;
+            return {
+                id: t.id,
+                name: t.name,
+                status: t.status,
+                remainQuota: remainQuota,
+                usedQuota: usedQuota,
+                unlimitedQuota: t.unlimitedQuota,
+                expiredTime: t.expiredTime ? Number(t.expiredTime) : -1,
+                accessedTime: t.accessedTime ? Number(t.accessedTime) : null,
+                group: t.group,
+                usedCount: 0,  // 该字段可能不存在于旧版本数据库
+                isExpired: t.expiredTime && t.expiredTime !== BigInt(-1) && Number(t.expiredTime) < now,
+                isExhausted: !t.unlimitedQuota && remainQuota <= 0,
+                usagePercent: t.unlimitedQuota ? null : 
+                    (usedQuota + remainQuota > 0 ? (usedQuota / (usedQuota + remainQuota) * 100).toFixed(1) : '0')
+            };
+        });
         
         const statusCount = {
             enabled: result.filter(t => t.status === 1).length,

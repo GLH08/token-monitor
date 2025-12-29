@@ -19,17 +19,23 @@ const Channels = () => {
 
     const loadData = async () => {
         setLoading(true);
-        const now = Math.floor(Date.now() / 1000);
-        const periodMap = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800 };
-        const start_ts = now - periodMap[period];
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            const periodMap = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800 };
+            const start_ts = now - periodMap[period];
 
-        const [overviewData, perfData] = await Promise.all([
-            fetchChannelsOverview(),
-            fetchChannelPerformance({ start_ts, end_ts: now })
-        ]);
+            const [overviewData, perfData] = await Promise.all([
+                fetchChannelsOverview().catch(() => ({ channels: [], statusCount: {}, total: 0 })),
+                fetchChannelPerformance({ start_ts, end_ts: now }).catch(() => [])
+            ]);
 
-        setOverview(overviewData);
-        setPerformance(perfData);
+            setOverview(overviewData || { channels: [], statusCount: {}, total: 0 });
+            setPerformance(perfData || []);
+        } catch (error) {
+            console.error('Load data error:', error);
+            setOverview({ channels: [], statusCount: {}, total: 0 });
+            setPerformance([]);
+        }
         setLoading(false);
     };
 

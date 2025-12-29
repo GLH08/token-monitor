@@ -10,8 +10,13 @@ const Tokens = () => {
 
     const loadData = async () => {
         setLoading(true);
-        const data = await fetchTokensOverview();
-        setTokens(data.tokens || []);
+        try {
+            const data = await fetchTokensOverview();
+            setTokens(data?.tokens || []);
+        } catch (error) {
+            console.error('Load data error:', error);
+            setTokens([]);
+        }
         setLoading(false);
     };
 

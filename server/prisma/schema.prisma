@@ -78,7 +78,6 @@ model Token {
   remainQuota        Int      @map("remain_quota") @default(0)
   unlimitedQuota     Boolean  @map("unlimited_quota") @default(false)
   usedQuota          Int      @map("used_quota") @default(0)
-  usedCount          Int      @map("used_count") @default(0)  // 使用次数
   modelLimitsEnabled Boolean? @map("model_limits_enabled") @default(false)
   modelLimits        String?  @map("model_limits")
   group              String?  @default("")
