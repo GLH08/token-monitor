@@ -24,6 +24,9 @@ COPY --from=frontend-builder /app/web/dist ./public
 # Generate Prisma Client
 RUN npx prisma generate
 
+# Create data directory
+RUN mkdir -p /app/data
+
 # Set production environment
 ENV NODE_ENV=production
 ENV PORT=3000

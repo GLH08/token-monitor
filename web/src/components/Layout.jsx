@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Bell, LogOut, Activity, Menu } from 'lucide-react';
+import { LayoutDashboard, FileText, Bell, LogOut, Activity, Menu, Server, Cpu, Key, AlertTriangle } from 'lucide-react';
 
 const Layout = ({ children, onLogout }) => {
     const location = useLocation();
@@ -9,7 +9,11 @@ const Layout = ({ children, onLogout }) => {
     const navItems = [
         { path: '/', label: '概览', icon: LayoutDashboard },
         { path: '/performance', label: '性能分析', icon: Activity },
+        { path: '/channels', label: '渠道监控', icon: Server },
+        { path: '/models', label: '模型分析', icon: Cpu },
+        { path: '/tokens', label: 'Token 管理', icon: Key },
         { path: '/logs', label: '日志明细', icon: FileText },
+        { path: '/errors', label: '错误日志', icon: AlertTriangle },
         { path: '/alerts', label: '告警配置', icon: Bell },
     ];
 

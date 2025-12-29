@@ -1,9 +1,16 @@
-# Token Monitor 一键部署配置
+# Token Monitor 一键部署配置 (镜像部署)
 # 
 # 使用方法：
 # 1. 修改下方环境变量
 # 2. 运行: docker compose up -d
 # 3. 访问: http://服务器IP:3000
+#
+# 功能特性：
+# - 渠道监控、模型分析、Token 管理
+# - 错误日志、性能分析
+# - 6 种告警类型 + Telegram 通知
+# - 熔断保护
+# - WebSocket 实时数据推送
 
 services:
   token-monitor:
@@ -13,11 +20,16 @@ services:
     environment:
       # ========== 必填 ==========
       # New API 数据库连接
+      # 格式: mysql://用户名:密码@IP地址:端口/数据库名
+      # 如果 New API 在同一服务器，IP 使用 host.docker.internal (Docker Desktop) 或宿主机内网 IP
       - DATABASE_URL=mysql://root:password@host.docker.internal:3306/new-api
+      
       # Web 登录密码
       - ACCESS_PASSWORD=your_password
 
       # ========== Telegram 通知 (可选) ==========
+      # 1. 在 Telegram 搜索 @BotFather，发送 /newbot 创建机器人获取 Token
+      # 2. 向机器人发送消息，访问 https://api.telegram.org/bot<TOKEN>/getUpdates 获取 Chat ID
       - TELEGRAM_BOT_TOKEN=
       - TELEGRAM_CHAT_ID=
     ports:

@@ -14,6 +14,25 @@
 - 支持 1小时/6小时/12小时/24小时/7天/30天 多时间维度
 - 模型消耗分布堆叠图、渠道消耗占比饼图
 - Token 消耗趋势折线图
+- WebSocket 实时数据推送
+
+### 🖥️ 渠道监控
+- 渠道状态总览（正常/手动禁用/自动禁用）
+- 渠道性能详情（请求数、Token、费用、错误率、延迟）
+- 请求量 Top 10 排行
+- 渠道状态分布饼图
+
+### 🤖 模型分析
+- 模型使用统计（请求数、Token、费用）
+- Token 分布 Top 8 饼图
+- 模型错误率和平均延迟分析
+- 支持多时间维度切换
+
+### 🔑 Token 管理
+- Token 状态总览（正常/禁用/过期/耗尽）
+- 额度使用情况（已用/剩余/无限）
+- Token 使用次数统计
+- 低额度 Token 预警
 
 ### 📋 日志明细
 - 分页查询所有 API 请求日志
@@ -22,6 +41,11 @@
 - 查看完整请求/响应 JSON 内容
 - 统计筛选结果的 Token 总量和费用
 
+### ❌ 错误日志
+- 独立的错误日志查看页面
+- 支持按渠道、模型筛选
+- 分页浏览错误详情
+
 ### ⚡ 性能分析
 - API 平均延迟趋势图
 - 请求量 (RPM) 和 Token 吞吐量 (TPM) 趋势
@@ -29,9 +53,10 @@
 - 超时请求 (>5s) 红色高亮标识
 
 ### 🚨 告警配置
-- 支持按渠道或模型设置 Token 用量阈值
+- 6 种告警类型：Token 用量、错误率、延迟、渠道宕机、额度不足、请求突增
 - 多种统计周期：1h/6h/12h/24h/48h/72h/7天/30天/自然日/自定义时间范围
 - 告警生效时间窗口（如仅工作时间生效）
+- 告警历史记录
 - 1小时告警冷却，避免重复通知
 
 ### 📢 Telegram 通知
@@ -60,16 +85,19 @@
 ```
 
 - **前端**: React 19 + Vite + TailwindCSS + Recharts
-- **后端**: Express + Prisma (MySQL) + SQLite
+- **后端**: Express + Prisma (MySQL) + SQLite + WebSocket
 - **部署**: Docker Compose
 
 ## 🚀 快速部署
 
-### 方式一：Docker 镜像部署（推荐）
+### 方式一：镜像部署（推荐）
 
-只需一个配置文件即可部署：
+只需一个配置文件即可部署，无需 clone 代码：
 
 ```bash
+# 创建目录
+mkdir token-monitor && cd token-monitor
+
 # 下载部署配置
 curl -O https://raw.githubusercontent.com/GLH08/token-monitor/main/deploy/docker-compose.yml
 
@@ -84,12 +112,14 @@ docker compose up -d
 
 ### 方式二：源码部署
 
+适合需要自定义修改的场景：
+
 ```bash
 # 克隆项目
 git clone https://github.com/GLH08/token-monitor.git
 cd token-monitor
 
-# 编辑配置
+# 编辑配置（修改数据库连接和密码）
 nano docker-compose.yml
 
 # 构建并启动
@@ -102,6 +132,15 @@ docker compose up -d --build
 
 ## 📝 配置说明
 
+### 环境变量
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `DATABASE_URL` | ✅ | New API MySQL 连接字符串 |
+| `ACCESS_PASSWORD` | ✅ | Web 登录密码 |
+| `TELEGRAM_BOT_TOKEN` | ❌ | Telegram 机器人 Token |
+| `TELEGRAM_CHAT_ID` | ❌ | Telegram 聊天 ID |
+
 ### DATABASE_URL
 
 连接到 New API 的 MySQL 数据库，用于读取日志数据。
@@ -113,7 +152,9 @@ mysql://用户名:密码@IP地址:端口/数据库名
 **获取方式**：查看 New API 的 `docker-compose.yml` 或环境变量配置。
 
 **注意**：
-- 如果 Monitor 和 New API 在同一服务器，IP 使用 `host.docker.internal` (Docker Desktop) 或宿主机内网 IP
+- 如果 Monitor 和 New API 在同一服务器：
+  - Docker Desktop: 使用 `host.docker.internal`
+  - Linux: 使用宿主机内网 IP（如 `172.17.0.1`）
 - 确保 MySQL 允许远程连接（检查 `bind-address` 和用户权限）
 
 ### Telegram 配置
@@ -122,7 +163,43 @@ mysql://用户名:密码@IP地址:端口/数据库名
 2. 获取 Bot Token（格式：`123456789:ABCdefGHI...`）
 3. 向机器人发送消息，然后访问 `https://api.telegram.org/bot<TOKEN>/getUpdates` 获取 Chat ID
 
+## 🌐 Nginx 反向代理
 
+项目提供了 `nginx.conf` 配置示例，支持 HTTPS 和 WebSocket。
+
+### 镜像部署（单端口 3000）
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;  # WebSocket 长连接
+}
+```
+
+### 源码部署（前端 5173 + API 3002）
+
+```nginx
+# Frontend
+location / {
+    proxy_pass http://127.0.0.1:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+}
+
+# Backend API
+location /api/ {
+    proxy_pass http://127.0.0.1:3002/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_read_timeout 86400;
+}
+```
 
 ## 📖 使用指南
 
@@ -131,9 +208,10 @@ mysql://用户名:密码@IP地址:端口/数据库名
 1. 进入「告警配置」页面
 2. 点击「新建告警」
 3. 配置规则：
+   - **告警类型**：Token 用量、错误率、延迟、渠道宕机、额度不足、请求突增
    - **监控对象**：选择渠道 ID 或模型名称
    - **统计周期**：选择时间范围或自定义
-   - **阈值**：设置 Token 上限
+   - **阈值**：设置触发条件
    - **通知渠道**：勾选需要的通知方式
    - **触发动作**：选择「仅通知」或「通知并禁用渠道」
 
@@ -144,13 +222,6 @@ mysql://用户名:密码@IP地址:端口/数据库名
 - 仅对「渠道」类型的告警生效
 - 需要手动在 New API 后台重新启用渠道
 
-### 自定义时间范围
-
-告警支持自定义统计时间范围，适用于：
-- 统计历史某个时段的 Token 总量
-- 月度/季度用量统计
-- 特定活动期间的用量监控
-
 ## 🔧 开发调试
 
 ### 本地开发
@@ -158,8 +229,10 @@ mysql://用户名:密码@IP地址:端口/数据库名
 ```bash
 # 后端
 cd server
+cp .env.example .env  # 配置环境变量
 npm install
-npm run dev
+npx prisma generate
+node index.js
 
 # 前端
 cd web
@@ -172,25 +245,36 @@ npm run dev
 ```
 token-monitor/
 ├── server/                 # 后端服务
-│   ├── index.js           # Express 主入口
+│   ├── index.js           # Express 主入口 + WebSocket
 │   ├── syncer.js          # 日志同步模块
-│   ├── alerter.js         # 告警检查模块
+│   ├── alerter.js         # 告警检查模块 (6种告警类型)
 │   ├── db.js              # SQLite 数据库
 │   └── prisma/            # Prisma ORM 配置
 ├── web/                    # 前端应用
 │   └── src/
 │       ├── Dashboard.jsx  # 数据看板
+│       ├── Channels.jsx   # 渠道监控
+│       ├── Models.jsx     # 模型分析
+│       ├── Tokens.jsx     # Token 管理
+│       ├── Errors.jsx     # 错误日志
 │       ├── Alerts.jsx     # 告警配置
 │       ├── Performance.jsx # 性能分析
 │       └── components/    # 通用组件
-├── docker-compose.yml     # Docker 部署配置
+├── deploy/                 # 镜像部署配置
+│   └── docker-compose.yml
+├── Dockerfile             # 单镜像构建 (前后端合并)
+├── docker-compose.yml     # 源码部署配置
+├── nginx.conf             # Nginx 配置示例
 └── README.md
 ```
 
 ## ⚠️ 注意事项
 
 1. **数据安全**：本系统仅读取 New API 的 `logs` 表，写入操作仅限于本地 SQLite 和渠道状态更新（熔断时）
-2. **端口开放**：镜像部署开放 `3000` 端口，源码部署开放 `5173` 和 `3002` 端口，或使用 Nginx 反向代理
+2. **端口开放**：
+   - 镜像部署：开放 `3000` 端口
+   - 源码部署：开放 `5173` 和 `3002` 端口
+   - 建议使用 Nginx 反向代理
 3. **密码保护**：请设置强密码，避免监控数据泄露
 4. **数据库权限**：建议为 Monitor 创建只读数据库用户（熔断功能除外）
 

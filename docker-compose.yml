@@ -1,3 +1,12 @@
+# Token Monitor 源码部署配置
+# 
+# 使用方法：
+# 1. 修改下方环境变量
+# 2. 运行: docker compose up -d --build
+# 3. 访问: http://服务器IP:5173 (前端) 或配置 Nginx 反向代理
+#
+# 注意：源码部署需要先 clone 项目代码
+
 version: '3'
 
 services:
@@ -6,13 +15,18 @@ services:
     container_name: monitor-server
     restart: always
     environment:
-      # ⚠️ 重要: 请将 127.0.0.1 替换为您部署 new-api 的服务器公网 IP
-      # ⚠️ 确保该服务器的 3306 端口已对外开放 (检查防火墙/安全组)
-      - DATABASE_URL=mysql://new_api_user:NewApiUserPass123@127.0.0.1:3306/new-api
+      # ========== 必填 ==========
+      # New API 数据库连接
+      # 格式: mysql://用户名:密码@IP地址:端口/数据库名
+      - DATABASE_URL=mysql://root:password@host.docker.internal:3306/new-api
       - PORT=3001
-      - ACCESS_PASSWORD=your_secure_password
-      - TELEGRAM_BOT_TOKEN=your_bot_token
-      - TELEGRAM_CHAT_ID=your_chat_id
+      
+      # Web 登录密码
+      - ACCESS_PASSWORD=your_password
+
+      # ========== Telegram 通知 (可选) ==========
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
     ports:
       - "3002:3001"
     volumes:
@@ -24,3 +38,5 @@ services:
     restart: always
     ports:
       - "5173:5173"
+    depends_on:
+      - monitor-server

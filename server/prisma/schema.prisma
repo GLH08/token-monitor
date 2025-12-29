@@ -8,12 +8,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==================== New API 日志表 ====================
 model Log {
   id               Int      @id @default(autoincrement())
   userId           Int      @map("user_id")
   createdAt        BigInt   @map("created_at")
-  type             Int
+  type             Int      // 1=充值, 2=消费, 3=管理, 4=系统, 5=错误, 6=退款
   content          String   @db.Text
+  username         String?  @default("")
   promptTokens     Int      @map("prompt_tokens")
   completionTokens Int      @map("completion_tokens")
   tokenName        String   @map("token_name")
@@ -21,19 +23,93 @@ model Log {
   quota            Int
   channelId        Int      @map("channel_id")
   tokenId          Int      @map("token_id")
-  useTime          Int      @map("use_time")
+  useTime          Int      @map("use_time")  // 响应时间(ms)
   isStream         Boolean  @map("is_stream")
   group            String?
-  other            String?  @db.Text
+  other            String?  @db.Text  // JSON: 包含倍率、缓存等详细信息
 
   @@map("logs")
   @@index([createdAt])
   @@index([channelId])
   @@index([modelName])
+  @@index([tokenId])
+  @@index([type])
 }
 
+// ==================== New API 渠道表 ====================
 model Channel {
-  id   Int    @id @default(autoincrement())
-  name String
+  id                 Int      @id @default(autoincrement())
+  type               Int      @default(0)
+  key                String   @db.Text
+  status             Int      @default(1)  // 1=启用, 2=手动禁用, 3=自动禁用
+  name               String
+  weight             Int?     @default(0)
+  createdTime        BigInt?  @map("created_time")
+  testTime           BigInt?  @map("test_time")
+  responseTime       Int?     @map("response_time")  // 响应时间(ms)
+  baseUrl            String?  @map("base_url") @db.Text
+  other              String?  @db.Text
+  balance            Float?   @default(0)
+  balanceUpdatedTime BigInt?  @map("balance_updated_time")
+  models             String?  @db.Text
+  group              String?  @default("default")
+  usedQuota          BigInt?  @map("used_quota") @default(0)
+  modelMapping       String?  @map("model_mapping") @db.Text
+  priority           BigInt?  @default(0)
+  autoBan            Int?     @map("auto_ban") @default(1)
+  otherInfo          String?  @map("other_info") @db.Text
+  tag                String?
+
   @@map("channels")
+  @@index([status])
+  @@index([tag])
+}
+
+// ==================== New API Token表 ====================
+model Token {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @map("user_id")
+  key                String   @unique @db.Char(48)
+  status             Int      @default(1)  // 1=启用, 2=禁用, 3=过期, 4=耗尽
+  name               String
+  createdTime        BigInt?  @map("created_time")
+  accessedTime       BigInt?  @map("accessed_time")
+  expiredTime        BigInt?  @map("expired_time") @default(-1)  // -1=永不过期
+  remainQuota        Int      @map("remain_quota") @default(0)
+  unlimitedQuota     Boolean  @map("unlimited_quota") @default(false)
+  usedQuota          Int      @map("used_quota") @default(0)
+  usedCount          Int      @map("used_count") @default(0)  // 使用次数
+  modelLimitsEnabled Boolean? @map("model_limits_enabled") @default(false)
+  modelLimits        String?  @map("model_limits")
+  group              String?  @default("")
+
+  @@map("tokens")
+  @@index([userId])
+  @@index([status])
+}
+
+// ==================== New API 模型定价表 ====================
+model Model {
+  id              Int     @id @default(autoincrement())
+  modelName       String  @unique @map("model_name")
+  modelRatio      Float?  @map("model_ratio")
+  completionRatio Float?  @map("completion_ratio")
+  modelPrice      Float?  @map("model_price")
+  enableGroup     String? @map("enable_group") @db.Text
+
+  @@map("models")
+}
+
+// ==================== New API 用户表 ====================
+model User {
+  id          Int     @id @default(autoincrement())
+  username    String  @unique
+  displayName String? @map("display_name")
+  role        Int     @default(1)
+  status      Int     @default(1)
+  quota       Int     @default(0)
+  usedQuota   Int     @map("used_quota") @default(0)
+  group       String? @default("default")
+
+  @@map("users")
 }

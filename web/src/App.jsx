@@ -6,6 +6,10 @@ import LogsTable from './components/LogsTable';
 import Alerts from './Alerts';
 import Login from './Login';
 import Performance from './Performance';
+import Channels from './Channels';
+import Models from './Models';
+import Tokens from './Tokens';
+import Errors from './Errors';
 
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('access_token'));
@@ -39,6 +43,10 @@ const App = () => {
         <Route path="/logs" element={<LogsTable />} />
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/performance" element={<Performance />} />
+        <Route path="/channels" element={<Channels />} />
+        <Route path="/models" element={<Models />} />
+        <Route path="/tokens" element={<Tokens />} />
+        <Route path="/errors" element={<Errors />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
