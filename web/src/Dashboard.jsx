@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { fetchStats, fetchSummary, fetchAnalysis, fetchChannels } from './api';
+import { useState, useEffect } from 'react';
+import { fetchStats, fetchSummary, fetchAnalysis, fetchChannels, fetchModelStatusOverview } from './api';
 import SummaryCards from './components/SummaryCards';
 import AnalyticsCharts from './components/AnalyticsCharts';
+import { CheckCircle, AlertTriangle, XCircle, HeartPulse } from 'lucide-react';
 
 const Dashboard = () => {
     const [summary, setSummary] = useState({});
@@ -12,6 +13,7 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [period, setPeriod] = useState('24h');
     const [channelsMap, setChannelsMap] = useState({});
+    const [modelHealth, setModelHealth] = useState(null);
 
     // Fetch channel names on mount
     useEffect(() => {
@@ -45,16 +47,22 @@ const Dashboard = () => {
 
             const filters = { start_ts: start };
 
-            // Parallel fetch
-            const [statsRes, summaryRes, modelRes, channelRes] = await Promise.all([
+            // Parallel fetch (including model health)
+            const [statsRes, summaryRes, modelRes, channelRes, healthRes] = await Promise.all([
                 fetchStats(filters),
                 fetchSummary(filters),
                 fetchAnalysis('model', filters),
-                fetchAnalysis('channel', filters)
+                fetchAnalysis('channel', filters),
+                fetchModelStatusOverview('24h').catch(() => null)
             ]);
 
             setSummary(summaryRes);
             setModelData(modelRes);
+            
+            // Set model health data
+            if (healthRes?.success) {
+                setModelHealth(healthRes.data?.summary);
+            }
 
             // Map channel IDs to names for channel data
             const mappedChannelData = channelRes.map(item => ({
@@ -158,11 +166,6 @@ const Dashboard = () => {
         return () => clearInterval(interval);
     }, [period, channelsMap]); // Reload when period or channelsMap changes
 
-    // Skeleton Loading Component
-    const Skeleton = ({ className }) => (
-        <div className={`animate-pulse bg-gray-200 rounded ${className}`}></div>
-    );
-
     const periods = [
         { value: '1h', label: '1 小时' },
         { value: '6h', label: '6 小时' },
@@ -214,6 +217,49 @@ const Dashboard = () => {
             ) : (
                 <>
                     <SummaryCards data={summary} />
+                    
+                    {/* Model Health Status Card */}
+                    {modelHealth && (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center text-white">
+                                    <HeartPulse size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800">模型健康状态</h3>
+                                    <p className="text-sm text-slate-500">过去 24 小时各模型成功率概览</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-4 gap-4">
+                                <div className="bg-slate-50 p-4 rounded-xl">
+                                    <div className="text-3xl font-bold text-slate-800">{modelHealth.total}</div>
+                                    <div className="text-sm text-slate-500">监控模型</div>
+                                </div>
+                                <div className="bg-emerald-50 p-4 rounded-xl">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle className="text-emerald-500" size={20} />
+                                        <span className="text-3xl font-bold text-emerald-600">{modelHealth.healthy}</span>
+                                    </div>
+                                    <div className="text-sm text-emerald-600">健康 (≥95%)</div>
+                                </div>
+                                <div className="bg-amber-50 p-4 rounded-xl">
+                                    <div className="flex items-center gap-2">
+                                        <AlertTriangle className="text-amber-500" size={20} />
+                                        <span className="text-3xl font-bold text-amber-600">{modelHealth.warning}</span>
+                                    </div>
+                                    <div className="text-sm text-amber-600">警告 (80-95%)</div>
+                                </div>
+                                <div className="bg-red-50 p-4 rounded-xl">
+                                    <div className="flex items-center gap-2">
+                                        <XCircle className="text-red-500" size={20} />
+                                        <span className="text-3xl font-bold text-red-600">{modelHealth.critical}</span>
+                                    </div>
+                                    <div className="text-sm text-red-600">异常 (&lt;80%)</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     <AnalyticsCharts
                         trendData={trendData}
                         modelData={modelData}

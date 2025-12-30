@@ -135,3 +135,22 @@ export const deleteAlert = (id) => authFetch(`/alerts/${id}`, { method: 'DELETE'
 
 // ==================== 实时统计 ====================
 export const fetchRealtime = () => authFetch('/realtime');
+
+// ==================== 模型状态监控 ====================
+export const fetchModelStatusOverview = (window = '24h') => 
+    authFetch(`/model-status/overview?window=${window}`);
+
+export const fetchModelStatusDetail = (modelName, window = '24h') => 
+    authFetch(`/model-status/${encodeURIComponent(modelName)}?window=${window}`);
+
+export const fetchAvailableModels = () => authFetch('/model-status/models');
+
+// ==================== 仪表盘增强 ====================
+export const fetchHourlyTrend = (hours = 24) => 
+    authFetch(`/dashboard/hourly-trend?hours=${hours}`);
+
+export const fetchModelDistribution = (filters) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => v && params.append(k, v));
+    return authFetch(`/dashboard/model-distribution?${params.toString()}`);
+};

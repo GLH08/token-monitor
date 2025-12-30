@@ -10,6 +10,7 @@ import Channels from './Channels';
 import Models from './Models';
 import Tokens from './Tokens';
 import Errors from './Errors';
+import ModelStatus from './ModelStatus';
 
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('access_token'));
@@ -45,6 +46,7 @@ const App = () => {
         <Route path="/performance" element={<Performance />} />
         <Route path="/channels" element={<Channels />} />
         <Route path="/models" element={<Models />} />
+        <Route path="/model-status" element={<ModelStatus />} />
         <Route path="/tokens" element={<Tokens />} />
         <Route path="/errors" element={<Errors />} />
         <Route path="*" element={<Navigate to="/" replace />} />

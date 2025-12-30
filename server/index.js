@@ -5,6 +5,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const { syncLogs, syncChannelSnapshots, cleanOldData, prisma } = require('./syncer');
 const { checkAlerts, getAlertHistory, ALERT_TYPES } = require('./alerter');
+const { getAvailableModels, getModelStatus, getAllModelsStatusOverview, TIME_WINDOWS } = require('./modelStatus');
 const db = require('./db');
 require('dotenv').config();
 
@@ -582,6 +583,112 @@ async function updateRealtimeStats() {
 
 app.get('/api/realtime', (req, res) => {
     res.json(realtimeStats);
+});
+
+
+// ==================== 模型状态监控 API ====================
+app.get('/api/model-status/models', async (req, res) => {
+    try {
+        const models = await getAvailableModels();
+        res.json({ success: true, data: models });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/model-status/overview', async (req, res) => {
+    const { window = '24h' } = req.query;
+    try {
+        const data = await getAllModelsStatusOverview(window);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/model-status/:modelName', async (req, res) => {
+    const { window = '24h' } = req.query;
+    const modelName = decodeURIComponent(req.params.modelName);
+    try {
+        const data = await getModelStatus(modelName, window);
+        if (!data) {
+            return res.status(404).json({ success: false, error: 'Model not found' });
+        }
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/model-status/windows/config', (req, res) => {
+    res.json({ success: true, data: TIME_WINDOWS });
+});
+
+
+// ==================== 仪表盘增强 API ====================
+app.get('/api/dashboard/hourly-trend', async (req, res) => {
+    const { hours = 24 } = req.query;
+    try {
+        const now = Math.floor(Date.now() / 1000);
+        const startTime = now - (parseInt(hours) * 3600);
+        
+        const rows = await db.allAsync(
+            `SELECT hour, SUM(request_count) as requests, SUM(tokens) as tokens,
+             SUM(quota) as quota, SUM(error_count) as errors,
+             SUM(avg_latency * request_count) / NULLIF(SUM(request_count), 0) as avg_latency
+             FROM stats WHERE hour >= ?
+             GROUP BY hour ORDER BY hour ASC`,
+            [startTime]
+        );
+        
+        // 填充缺失的小时数据
+        const hourMap = new Map(rows.map(r => [r.hour, r]));
+        const result = [];
+        
+        for (let h = Math.floor(startTime / 3600) * 3600; h <= now; h += 3600) {
+            const data = hourMap.get(h);
+            result.push({
+                hour: h,
+                time: new Date(h * 1000).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+                requests: data?.requests || 0,
+                tokens: data?.tokens || 0,
+                quota: data?.quota || 0,
+                cost: (data?.quota || 0) / 500000,
+                errors: data?.errors || 0,
+                avg_latency: Math.round(data?.avg_latency || 0)
+            });
+        }
+        
+        res.json({ success: true, data: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/dashboard/model-distribution', async (req, res) => {
+    const { start_ts, end_ts } = req.query;
+    try {
+        const rows = await db.allAsync(
+            `SELECT model_name, SUM(request_count) as requests, SUM(tokens) as tokens, SUM(quota) as quota
+             FROM stats WHERE hour >= ? AND hour <= ?
+             GROUP BY model_name ORDER BY requests DESC LIMIT 10`,
+            [start_ts, end_ts]
+        );
+        
+        const total = rows.reduce((sum, r) => sum + r.requests, 0);
+        const result = rows.map(r => ({
+            name: r.model_name,
+            requests: r.requests,
+            tokens: r.tokens,
+            quota: r.quota,
+            cost: r.quota / 500000,
+            percentage: total > 0 ? parseFloat((r.requests / total * 100).toFixed(2)) : 0
+        }));
+        
+        res.json({ success: true, data: result, total });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // ==================== 静态文件服务 ====================

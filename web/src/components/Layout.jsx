@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Bell, LogOut, Activity, Menu, Server, Cpu, Key, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, FileText, Bell, LogOut, Activity, Menu, Server, Cpu, Key, AlertTriangle, HeartPulse } from 'lucide-react';
 
 const Layout = ({ children, onLogout }) => {
     const location = useLocation();
@@ -11,6 +11,7 @@ const Layout = ({ children, onLogout }) => {
         { path: '/performance', label: '性能分析', icon: Activity },
         { path: '/channels', label: '渠道监控', icon: Server },
         { path: '/models', label: '模型分析', icon: Cpu },
+        { path: '/model-status', label: '模型状态', icon: HeartPulse },
         { path: '/tokens', label: 'Token 管理', icon: Key },
         { path: '/logs', label: '日志明细', icon: FileText },
         { path: '/errors', label: '错误日志', icon: AlertTriangle },
