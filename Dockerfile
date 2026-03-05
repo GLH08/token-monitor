@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY server/package*.json ./
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl dos2unix
 RUN npm install
 
 # Copy server code
@@ -21,8 +21,8 @@ COPY server/ ./
 # Copy frontend build to public folder
 COPY --from=frontend-builder /app/web/dist ./public
 
-# Generate Prisma Client
-RUN npx prisma generate
+# Set up entrypoint script
+RUN dos2unix /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 
 # Create data directory
 RUN mkdir -p /app/data
@@ -33,4 +33,4 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["node", "index.js"]
+CMD ["/app/docker-entrypoint.sh"]
