@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Activity, RefreshCw, CheckCircle, AlertTriangle, XCircle, Clock } from 'lucide-react';
+import { Activity, RefreshCw, CheckCircle, AlertTriangle, XCircle, Clock, Filter } from 'lucide-react';
 
 const TIME_WINDOWS = [
     { value: '1h', label: '1 小时', slots: 12 },
@@ -28,11 +28,13 @@ const ModelStatus = () => {
     const [selectedModel, setSelectedModel] = useState(null);
     const [modelDetail, setModelDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    const [channels, setChannels] = useState([]);
+    const [selectedChannel, setSelectedChannel] = useState('');
 
     const fetchOverview = useCallback(async () => {
         try {
             const token = localStorage.getItem('access_token');
-            const res = await fetch(`/api/model-status/overview?window=${timeWindow}`, {
+            const res = await fetch(`/api/model-status/overview?window=${timeWindow}${selectedChannel ? `&channel_id=${selectedChannel}` : ''}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const result = await res.json();
@@ -42,13 +44,13 @@ const ModelStatus = () => {
         } catch (error) {
             console.error('Failed to fetch model status:', error);
         }
-    }, [timeWindow]);
+    }, [timeWindow, selectedChannel]);
 
     const fetchModelDetail = useCallback(async (modelName) => {
         setDetailLoading(true);
         try {
             const token = localStorage.getItem('access_token');
-            const res = await fetch(`/api/model-status/${encodeURIComponent(modelName)}?window=${timeWindow}`, {
+            const res = await fetch(`/api/model-status/${encodeURIComponent(modelName)}?window=${timeWindow}${selectedChannel ? `&channel_id=${selectedChannel}` : ''}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const result = await res.json();
@@ -60,7 +62,7 @@ const ModelStatus = () => {
         } finally {
             setDetailLoading(false);
         }
-    }, [timeWindow]);
+    }, [timeWindow, selectedChannel]);
 
     useEffect(() => {
         const loadData = async () => {
@@ -74,6 +76,25 @@ const ModelStatus = () => {
         const interval = setInterval(fetchOverview, 30000);
         return () => clearInterval(interval);
     }, [fetchOverview]);
+
+    // 加载渠道列表
+    useEffect(() => {
+        const loadChannels = async () => {
+            try {
+                const token = localStorage.getItem('access_token');
+                const res = await fetch('/api/channels', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                if (Array.isArray(result)) {
+                    setChannels(result);
+                }
+            } catch (error) {
+                console.error('Failed to load channels:', error);
+            }
+        };
+        loadChannels();
+    }, []);
 
     useEffect(() => {
         if (selectedModel) {
@@ -132,15 +153,28 @@ const ModelStatus = () => {
                             <button
                                 key={w.value}
                                 onClick={() => setTimeWindow(w.value)}
-                                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
-                                    timeWindow === w.value
+                                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${timeWindow === w.value
                                         ? 'bg-cyan-500 text-white'
                                         : 'text-slate-600 hover:bg-slate-100'
-                                }`}
+                                    }`}
                             >
                                 {w.label}
                             </button>
                         ))}
+                    </div>
+                    {/* 渠道筛选 */}
+                    <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg border">
+                        <Filter size={14} className="text-slate-400" />
+                        <select
+                            value={selectedChannel}
+                            onChange={(e) => setSelectedChannel(e.target.value)}
+                            className="text-sm border-none outline-none bg-transparent text-slate-600 cursor-pointer py-1"
+                        >
+                            <option value="">全部渠道</option>
+                            {channels.map(ch => (
+                                <option key={ch.id} value={ch.id}>{ch.name}</option>
+                            ))}
+                        </select>
                     </div>
                 </div>
             </div>
@@ -212,9 +246,8 @@ const ModelStatus = () => {
                             <div
                                 key={idx}
                                 onClick={() => setSelectedModel(model.model_name)}
-                                className={`p-4 hover:bg-slate-50 cursor-pointer transition ${
-                                    selectedModel === model.model_name ? 'bg-cyan-50 border-l-4 border-l-cyan-500' : ''
-                                }`}
+                                className={`p-4 hover:bg-slate-50 cursor-pointer transition ${selectedModel === model.model_name ? 'bg-cyan-50 border-l-4 border-l-cyan-500' : ''
+                                    }`}
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
@@ -263,7 +296,7 @@ const ModelStatus = () => {
                             ✕
                         </button>
                     </div>
-                    
+
                     {detailLoading ? (
                         <div className="p-8 flex justify-center">
                             <RefreshCw className="animate-spin text-cyan-500" size={24} />

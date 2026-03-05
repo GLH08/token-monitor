@@ -1,13 +1,18 @@
 /**
  * 模型状态监控服务
  * 提供滑动窗口的模型成功率监控
+ * 支持按渠道×模型的细粒度监控
  */
 
 const { prisma } = require('./syncer');
+const db = require('./db');
 
 // 日志类型
 const LOG_TYPE_CONSUME = 2;  // 成功
 const LOG_TYPE_ERROR = 5;    // 失败
+
+// 最大监控模型数（可通过环境变量配置）
+const MAX_MONITOR_MODELS = parseInt(process.env.MAX_MONITOR_MODELS) || 50;
 
 // 时间窗口配置: { 总秒数, 槽位数, 每槽秒数 }
 const TIME_WINDOWS = {
@@ -32,7 +37,8 @@ function getStatusColor(successRate, totalRequests) {
 }
 
 /**
- * 获取可用模型列表（从日志中提取活跃模型）
+ * 获取可用模型列表
+ * 合并两种来源：日志中活跃的模型 + 渠道配置的模型
  */
 async function getAvailableModels() {
     const cacheKey = 'available_models';
@@ -45,8 +51,8 @@ async function getAvailableModels() {
         const now = Math.floor(Date.now() / 1000);
         const dayAgo = now - 86400;
 
-        // 从日志中获取24小时内活跃的模型
-        const models = await prisma.log.groupBy({
+        // 来源1: 从日志中获取24小时内活跃的模型
+        const activeModels = await prisma.log.groupBy({
             by: ['modelName'],
             where: {
                 createdAt: { gte: dayAgo },
@@ -57,10 +63,52 @@ async function getAvailableModels() {
             orderBy: { _count: { id: 'desc' } }
         });
 
-        const result = models.map(m => ({
-            model_name: m.modelName,
-            request_count_24h: m._count.id
-        }));
+        const activeModelMap = new Map();
+        activeModels.forEach(m => {
+            activeModelMap.set(m.modelName, m._count.id);
+        });
+
+        // 来源2: 从渠道配置中获取全量模型列表
+        const channels = await prisma.channel.findMany({
+            where: { status: 1 },
+            select: { id: true, name: true, models: true }
+        });
+
+        const channelModelSet = new Set();
+        channels.forEach(ch => {
+            if (ch.models) {
+                const modelList = ch.models.split(',').map(m => m.trim()).filter(m => m);
+                modelList.forEach(m => channelModelSet.add(m));
+            }
+        });
+
+        // 合并：活跃模型优先，补充渠道配置中的非活跃模型
+        const result = [];
+        activeModelMap.forEach((count, name) => {
+            result.push({
+                model_name: name,
+                request_count_24h: count,
+                is_active: true
+            });
+        });
+
+        channelModelSet.forEach(name => {
+            if (!activeModelMap.has(name)) {
+                result.push({
+                    model_name: name,
+                    request_count_24h: 0,
+                    is_active: false
+                });
+            }
+        });
+
+        // 按活跃度排序：有请求的在前，无请求的按名称排序
+        result.sort((a, b) => {
+            if (a.request_count_24h !== b.request_count_24h) {
+                return b.request_count_24h - a.request_count_24h;
+            }
+            return a.model_name.localeCompare(b.model_name);
+        });
 
         cache.set(cacheKey, { data: result, time: Date.now() });
         return result;
@@ -71,12 +119,15 @@ async function getAvailableModels() {
 }
 
 /**
- * 获取单个模型的状态
+ * 获取单个模型的状态（优化版：优先从 stats 聚合表读取）
+ * @param {string} modelName - 模型名称
+ * @param {string} timeWindow - 时间窗口
+ * @param {number|null} channelId - 可选的渠道ID筛选
  */
-async function getModelStatus(modelName, timeWindow = '24h') {
+async function getModelStatus(modelName, timeWindow = '24h', channelId = null) {
     const config = TIME_WINDOWS[timeWindow] || TIME_WINDOWS['24h'];
-    const cacheKey = `model_status:${modelName}:${timeWindow}`;
-    
+    const cacheKey = `model_status:${modelName}:${timeWindow}:${channelId || 'all'}`;
+
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.time < CACHE_TTL) {
         return cached.data;
@@ -86,17 +137,26 @@ async function getModelStatus(modelName, timeWindow = '24h') {
         const now = Math.floor(Date.now() / 1000);
         const windowStart = now - config.totalSeconds;
 
-        // 查询该模型在时间窗口内的日志
-        const logs = await prisma.log.findMany({
-            where: {
-                modelName: modelName,
-                createdAt: { gte: windowStart, lt: now },
-                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
-            },
-            select: {
-                createdAt: true,
-                type: true
-            }
+        // 优化：从 stats 聚合表获取数据（而非查全量日志）
+        let query = `SELECT hour, SUM(request_count) as total_requests, 
+                     SUM(request_count) - SUM(error_count) as success_count,
+                     SUM(error_count) as error_count
+                     FROM stats WHERE model_name = ? AND hour >= ? AND hour < ?`;
+        const params = [modelName, windowStart, now];
+
+        if (channelId) {
+            query += ` AND channel_id = ?`;
+            params.push(channelId);
+        }
+
+        query += ` GROUP BY hour ORDER BY hour ASC`;
+
+        const rows = await db.allAsync(query, params);
+
+        // 构建小时到数据的映射
+        const hourMap = new Map();
+        rows.forEach(r => {
+            hourMap.set(r.hour, r);
         });
 
         // 初始化所有槽位
@@ -115,22 +175,18 @@ async function getModelStatus(modelName, timeWindow = '24h') {
             });
         }
 
-        // 填充数据
+        // 填充数据：将按小时的 stats 数据映射到对应槽位
         let totalRequests = 0;
         let totalSuccess = 0;
 
-        logs.forEach(log => {
-            const ts = Number(log.createdAt);
-            const slotIndex = Math.floor((ts - windowStart) / config.slotSeconds);
-            
+        rows.forEach(row => {
+            const slotIndex = Math.floor((row.hour - windowStart) / config.slotSeconds);
+
             if (slotIndex >= 0 && slotIndex < config.numSlots) {
-                slots[slotIndex].total_requests++;
-                totalRequests++;
-                
-                if (log.type === LOG_TYPE_CONSUME) {
-                    slots[slotIndex].success_count++;
-                    totalSuccess++;
-                }
+                slots[slotIndex].total_requests += row.total_requests || 0;
+                slots[slotIndex].success_count += row.success_count || 0;
+                totalRequests += row.total_requests || 0;
+                totalSuccess += row.success_count || 0;
             }
         });
 
@@ -148,6 +204,7 @@ async function getModelStatus(modelName, timeWindow = '24h') {
             model_name: modelName,
             display_name: modelName,
             time_window: timeWindow,
+            channel_id: channelId,
             total_requests: totalRequests,
             success_count: totalSuccess,
             success_rate: overallRate,
@@ -166,23 +223,46 @@ async function getModelStatus(modelName, timeWindow = '24h') {
 /**
  * 获取多个模型的状态
  */
-async function getMultipleModelsStatus(modelNames, timeWindow = '24h') {
+async function getMultipleModelsStatus(modelNames, timeWindow = '24h', channelId = null) {
     const results = await Promise.all(
-        modelNames.map(name => getModelStatus(name, timeWindow))
+        modelNames.map(name => getModelStatus(name, timeWindow, channelId))
     );
     return results.filter(r => r !== null);
 }
 
 /**
  * 获取所有活跃模型的状态概览
+ * @param {string} timeWindow - 时间窗口
+ * @param {number|null} channelId - 可选的渠道ID筛选
  */
-async function getAllModelsStatusOverview(timeWindow = '24h') {
-    const models = await getAvailableModels();
-    const topModels = models.slice(0, 20); // 只取前20个活跃模型
-    
+async function getAllModelsStatusOverview(timeWindow = '24h', channelId = null) {
+    let models = await getAvailableModels();
+
+    // 如果指定了渠道ID，过滤出该渠道配置的模型
+    if (channelId) {
+        try {
+            const channel = await prisma.channel.findUnique({
+                where: { id: channelId },
+                select: { models: true }
+            });
+            if (channel && channel.models) {
+                const channelModels = new Set(
+                    channel.models.split(',').map(m => m.trim()).filter(m => m)
+                );
+                models = models.filter(m => channelModels.has(m.model_name));
+            }
+        } catch (e) {
+            console.error('[ModelStatus] Filter by channel error:', e.message);
+        }
+    }
+
+    // 使用可配置的限制数量
+    const topModels = models.slice(0, MAX_MONITOR_MODELS);
+
     const statuses = await getMultipleModelsStatus(
         topModels.map(m => m.model_name),
-        timeWindow
+        timeWindow,
+        channelId
     );
 
     // 按状态分组统计
@@ -200,6 +280,8 @@ async function getAllModelsStatusOverview(timeWindow = '24h') {
             critical: statusCount.red
         },
         time_window: timeWindow,
+        channel_id: channelId,
+        max_models: MAX_MONITOR_MODELS,
         generated_at: Math.floor(Date.now() / 1000)
     };
 }

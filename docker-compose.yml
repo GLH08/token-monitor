@@ -1,42 +1,37 @@
-# Token Monitor 源码部署配置
-# 
-# 使用方法：
-# 1. 修改下方环境变量
-# 2. 运行: docker compose up -d --build
-# 3. 访问: http://服务器IP:5173 (前端) 或配置 Nginx 反向代理
-#
-# 注意：源码部署需要先 clone 项目代码
-
-version: '3'
-
 services:
   monitor-server:
     build: ./server
-    container_name: monitor-server
+    container_name: token-monitor-server
     restart: always
-    environment:
-      # ========== 必填 ==========
-      # New API 数据库连接
-      # 格式: mysql://用户名:密码@IP地址:端口/数据库名
-      - DATABASE_URL=mysql://root:password@host.docker.internal:3306/new-api
-      - PORT=3001
-      
-      # Web 登录密码
-      - ACCESS_PASSWORD=your_password
-
-      # ========== Telegram 通知 (可选) ==========
-      - TELEGRAM_BOT_TOKEN=
-      - TELEGRAM_CHAT_ID=
     ports:
-      - "3002:3001"
+      - "3001:3001"
+    environment:
+      # MySQL 格式:
+      # DATABASE_URL: mysql://用户名:密码@IP地址:3306/数据库名
+      # PostgreSQL 格式:
+      # DATABASE_URL: postgresql://用户名:密码@IP地址:5432/数据库名
+      DATABASE_URL: ${DATABASE_URL}
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # 额度转美元单位（与 new-api 的 QuotaPerUnit 保持一致，默认 500000）
+      QUOTA_PER_UNIT: ${QUOTA_PER_UNIT:-500000}
+      # 最大监控模型数量（默认 50）
+      MAX_MONITOR_MODELS: ${MAX_MONITOR_MODELS:-50}
+      NODE_ENV: production
     volumes:
-      - ./data:/app/data
+      - monitor-data:/app/data
 
   monitor-web:
     build: ./web
-    container_name: monitor-web
+    container_name: token-monitor-web
     restart: always
     ports:
-      - "5173:5173"
+      - "3002:80"
     depends_on:
       - monitor-server
+    environment:
+      VITE_API_URL: http://monitor-server:3001
+
+volumes:
+  monitor-data:

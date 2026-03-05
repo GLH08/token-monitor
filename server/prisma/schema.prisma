@@ -23,10 +23,12 @@ model Log {
   quota            Int
   channelId        Int      @map("channel_id")
   tokenId          Int      @map("token_id")
-  useTime          Int      @map("use_time")  // 响应时间(ms)
+  useTime          Int      @map("use_time") // 响应时间(ms)
   isStream         Boolean  @map("is_stream")
   group            String?
-  other            String?  @db.Text  // JSON: 包含倍率、缓存等详细信息
+  ip               String?  @default("")
+  requestId        String?  @map("request_id") @default("")
+  other            String?  @db.Text // JSON: 包含倍率、缓存等详细信息
 
   @@map("logs")
   @@index([createdAt])
@@ -41,12 +43,14 @@ model Channel {
   id                 Int      @id @default(autoincrement())
   type               Int      @default(0)
   key                String   @db.Text
-  status             Int      @default(1)  // 1=启用, 2=手动禁用, 3=自动禁用
+  openaiOrganization String?  @map("openai_organization")
+  testModel          String?  @map("test_model")
+  status             Int      @default(1) // 1=启用, 2=手动禁用, 3=自动禁用
   name               String
   weight             Int?     @default(0)
   createdTime        BigInt?  @map("created_time")
   testTime           BigInt?  @map("test_time")
-  responseTime       Int?     @map("response_time")  // 响应时间(ms)
+  responseTime       Int?     @map("response_time") // 响应时间(ms)
   baseUrl            String?  @map("base_url") @db.Text
   other              String?  @db.Text
   balance            Float?   @default(0)
@@ -55,10 +59,17 @@ model Channel {
   group              String?  @default("default")
   usedQuota          BigInt?  @map("used_quota") @default(0)
   modelMapping       String?  @map("model_mapping") @db.Text
+  statusCodeMapping  String?  @map("status_code_mapping")
   priority           BigInt?  @default(0)
   autoBan            Int?     @map("auto_ban") @default(1)
   otherInfo          String?  @map("other_info") @db.Text
   tag                String?
+  setting            String?  @db.Text       // 渠道额外设置
+  paramOverride      String?  @map("param_override") @db.Text
+  headerOverride     String?  @map("header_override") @db.Text
+  remark             String?  @db.VarChar(255)
+  channelInfo        String?  @map("channel_info") @db.Text // JSON: 多Key管理
+  otherSettings      String?  @map("settings") @db.Text     // 其他设置(azure版本等)
 
   @@map("channels")
   @@index([status])
@@ -67,36 +78,56 @@ model Channel {
 
 // ==================== New API Token表 ====================
 model Token {
-  id                 Int      @id @default(autoincrement())
-  userId             Int      @map("user_id")
-  key                String   @unique @db.Char(48)
-  status             Int      @default(1)  // 1=启用, 2=禁用, 3=过期, 4=耗尽
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @map("user_id")
+  key                String    @unique @db.Char(48)
+  status             Int       @default(1) // 1=启用, 2=禁用, 3=过期, 4=耗尽
   name               String
-  createdTime        BigInt?  @map("created_time")
-  accessedTime       BigInt?  @map("accessed_time")
-  expiredTime        BigInt?  @map("expired_time") @default(-1)  // -1=永不过期
-  remainQuota        Int      @map("remain_quota") @default(0)
-  unlimitedQuota     Boolean  @map("unlimited_quota") @default(false)
-  usedQuota          Int      @map("used_quota") @default(0)
-  modelLimitsEnabled Boolean? @map("model_limits_enabled") @default(false)
-  modelLimits        String?  @map("model_limits")
-  group              String?  @default("")
+  createdTime        BigInt?   @map("created_time")
+  accessedTime       BigInt?   @map("accessed_time")
+  expiredTime        BigInt?   @map("expired_time") @default(-1) // -1=永不过期
+  remainQuota        Int       @map("remain_quota") @default(0)
+  unlimitedQuota     Boolean   @map("unlimited_quota") @default(false)
+  usedQuota          Int       @map("used_quota") @default(0)
+  modelLimitsEnabled Boolean?  @map("model_limits_enabled") @default(false)
+  modelLimits        String?   @map("model_limits") @db.Text
+  allowIps           String?   @map("allow_ips") @default("")
+  group              String?   @default("")
+  crossGroupRetry    Boolean?  @map("cross_group_retry") @default(false)
+  deletedAt          DateTime? @map("deleted_at")
 
   @@map("tokens")
   @@index([userId])
   @@index([status])
 }
 
-// ==================== New API 模型定价表 ====================
+// ==================== New API 模型管理表 ====================
 model Model {
-  id              Int     @id @default(autoincrement())
-  modelName       String  @unique @map("model_name")
-  modelRatio      Float?  @map("model_ratio")
-  completionRatio Float?  @map("completion_ratio")
-  modelPrice      Float?  @map("model_price")
-  enableGroup     String? @map("enable_group") @db.Text
+  id              Int       @id @default(autoincrement())
+  modelName       String    @map("model_name")
+  description     String?   @db.Text
+  icon            String?   @db.VarChar(128)
+  tags            String?   @db.VarChar(255)
+  vendorId        Int?      @map("vendor_id")
+  endpoints       String?   @db.Text
+  status          Int       @default(1)
+  syncOfficial    Int?      @map("sync_official") @default(1)
+  createdTime     BigInt?   @map("created_time")
+  updatedTime     BigInt?   @map("updated_time")
+  deletedAt       DateTime? @map("deleted_at")
+  nameRule        Int?      @map("name_rule") @default(0)
 
   @@map("models")
+}
+
+// ==================== New API 供应商表 ====================
+model Vendor {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String? @db.Text
+  icon        String? @db.VarChar(128)
+
+  @@map("vendors")
 }
 
 // ==================== New API 用户表 ====================

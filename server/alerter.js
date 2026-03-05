@@ -41,54 +41,15 @@ class Notifier {
 
 const notifier = new Notifier();
 
-// ==================== MySQL 连接（用于熔断） ====================
-let mysqlConnection = null;
-
-async function getMysqlConnection() {
-    if (mysqlConnection) return mysqlConnection;
-
-    try {
-        const mysql = require('mysql2/promise');
-        const dbUrl = process.env.DATABASE_URL;
-
-        if (!dbUrl) {
-            console.error('[CIRCUIT BREAKER] DATABASE_URL not set');
-            return null;
-        }
-
-        const match = dbUrl.match(/mysql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
-        if (!match) {
-            console.error('[CIRCUIT BREAKER] Invalid DATABASE_URL format');
-            return null;
-        }
-
-        mysqlConnection = await mysql.createConnection({
-            host: match[3],
-            port: parseInt(match[4]),
-            user: match[1],
-            password: match[2],
-            database: match[5]
-        });
-
-        console.log('[CIRCUIT BREAKER] MySQL connection established');
-        return mysqlConnection;
-    } catch (error) {
-        console.error('[CIRCUIT BREAKER] MySQL connection failed:', error.message);
-        return null;
-    }
-}
-
+// ==================== 熔断操作（通过 Prisma 执行） ====================
 async function disableChannel(channelId) {
     try {
-        const conn = await getMysqlConnection();
-        if (!conn) return false;
+        const result = await prisma.channel.updateMany({
+            where: { id: channelId },
+            data: { status: 2 } // 2 = 手动禁用
+        });
 
-        const [result] = await conn.execute(
-            'UPDATE channels SET status = 2 WHERE id = ?',
-            [channelId]
-        );
-
-        if (result.affectedRows > 0) {
+        if (result.count > 0) {
             console.log(`[CIRCUIT BREAKER] ✅ Channel ${channelId} disabled successfully`);
             return true;
         } else {
@@ -97,10 +58,6 @@ async function disableChannel(channelId) {
         }
     } catch (error) {
         console.error(`[CIRCUIT BREAKER] ❌ Error disabling channel ${channelId}:`, error.message);
-        if (mysqlConnection) {
-            try { await mysqlConnection.end(); } catch (e) {}
-            mysqlConnection = null;
-        }
         return false;
     }
 }

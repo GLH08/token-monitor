@@ -15,6 +15,7 @@
 - 模型消耗分布堆叠图、渠道消耗占比饼图
 - Token 消耗趋势折线图
 - WebSocket 实时数据推送
+- **健康检查**：内置 `/health` 与系统信息监控端点
 
 ### 🖥️ 渠道监控
 - 渠道状态总览（正常/手动禁用/自动禁用）
@@ -33,6 +34,7 @@
 - 额度使用情况（已用/剩余/无限）
 - Token 使用次数统计
 - 低额度 Token 预警
+- **软删除适配**：自动过滤 New API 中已软删除的 Token 数据
 
 ### 📋 日志明细
 - 分页查询所有 API 请求日志
@@ -79,13 +81,13 @@
                     ┌────────────┴────────────┐
                     ▼                         ▼
            ┌───────────────┐         ┌───────────────┐
-           │  SQLite (本地) │         │ MySQL (远程)  │
+           │  SQLite (本地) │         │ MySQL / PGSQL │
            │  统计/告警数据  │         │ New API 日志  │
            └───────────────┘         └───────────────┘
 ```
 
 - **前端**: React 19 + Vite + TailwindCSS + Recharts
-- **后端**: Express + Prisma (MySQL) + SQLite + WebSocket
+- **后端**: Express + Prisma (MySQL & PostgreSQL) + SQLite + WebSocket
 - **部署**: Docker Compose
 
 ## 🚀 快速部署
@@ -136,17 +138,25 @@ docker compose up -d --build
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
-| `DATABASE_URL` | ✅ | New API MySQL 连接字符串 |
+| `DATABASE_URL` | ✅ | New API 数据库连接字符串（支持 MySQL / PostgreSQL） |
 | `ACCESS_PASSWORD` | ✅ | Web 登录密码 |
 | `TELEGRAM_BOT_TOKEN` | ❌ | Telegram 机器人 Token |
 | `TELEGRAM_CHAT_ID` | ❌ | Telegram 聊天 ID |
+| `QUOTA_PER_UNIT` | ❌ | 额度转美元的倍率，与 New API 保持一致（默认：`500000`） |
+| `MAX_MONITOR_MODELS` | ❌ | 控制面板展示的最大独立模型数（默认：`50`） |
 
 ### DATABASE_URL
 
-连接到 New API 的 MySQL 数据库，用于读取日志数据。
+连接到 New API 的数据库，用于读取日志数据，支持 MySQL 与 PostgreSQL：
 
+**MySQL 格式**：
 ```
 mysql://用户名:密码@IP地址:端口/数据库名
+```
+
+**PostgreSQL 格式**：
+```
+postgresql://用户名:密码@IP地址:端口/数据库名?schema=public
 ```
 
 **获取方式**：查看 New API 的 `docker-compose.yml` 或环境变量配置。
@@ -199,6 +209,13 @@ location /api/ {
     proxy_set_header Connection 'upgrade';
     proxy_read_timeout 86400;
 }
+
+# Backend Health Check
+location = /health {
+    proxy_pass http://127.0.0.1:3002/health;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
 ```
 
 ## 📖 使用指南
@@ -230,6 +247,8 @@ location /api/ {
 # 后端
 cd server
 cp .env.example .env  # 配置环境变量
+
+# 如果你使用的是 PostgreSQL，需更改 prisma/schema.prisma 中的 provider 为 "postgresql"
 npm install
 npx prisma generate
 node index.js

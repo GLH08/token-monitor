@@ -16,6 +16,18 @@ app.use(express.json());
 const PORT = process.env.PORT || 3001;
 const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD;
 
+// 额度转美元的单位（new-api 默认 500000）
+const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
+
+// 同步延迟监控指标
+const syncMetrics = {
+    lastSyncTime: null,
+    lastSyncDuration: 0,
+    totalSyncCount: 0,
+    lastError: null,
+    startedAt: new Date().toISOString()
+};
+
 // ==================== 认证中间件 ====================
 const authMiddleware = (req, res, next) => {
     if (!ACCESS_PASSWORD) return next();
@@ -66,7 +78,7 @@ app.get('/api/summary', async (req, res) => {
             total_quota: row?.total_quota || 0,
             total_errors: row?.total_errors || 0,
             active_models: row?.active_models || 0,
-            total_cost: (row?.total_quota || 0) / 500000
+            total_cost: (row?.total_quota || 0) / QUOTA_PER_UNIT
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -101,14 +113,14 @@ app.get('/api/channels/overview', async (req, res) => {
                 id: true, name: true, type: true, status: true
             }
         });
-        
+
         const statusCount = { enabled: 0, disabled: 0, autoDisabled: 0 };
         channels.forEach(ch => {
             if (ch.status === 1) statusCount.enabled++;
             else if (ch.status === 2) statusCount.disabled++;
             else if (ch.status === 3) statusCount.autoDisabled++;
         });
-        
+
         res.json({ channels, statusCount, total: channels.length });
     } catch (error) {
         console.error('[API] /channels/overview error:', error.message);
@@ -127,14 +139,14 @@ app.get('/api/channels/performance', async (req, res) => {
              GROUP BY channel_id ORDER BY requests DESC`,
             [start_ts, end_ts]
         );
-        
+
         const channelIds = rows.map(r => r.channel_id);
         const channels = await prisma.channel.findMany({
             where: { id: { in: channelIds } },
             select: { id: true, name: true, type: true }
         });
         const channelMap = Object.fromEntries(channels.map(c => [c.id, c]));
-        
+
         const result = rows.map(r => ({
             channelId: r.channel_id,
             channelName: channelMap[r.channel_id]?.name || `Channel ${r.channel_id}`,
@@ -142,12 +154,12 @@ app.get('/api/channels/performance', async (req, res) => {
             requests: r.requests,
             tokens: r.tokens,
             quota: r.quota,
-            cost: r.quota / 500000,
+            cost: r.quota / QUOTA_PER_UNIT,
             errors: r.errors,
             errorRate: r.requests > 0 ? (r.errors / r.requests * 100).toFixed(2) : 0,
             avgLatency: Math.round(r.avg_latency || 0)
         }));
-        
+
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -167,7 +179,7 @@ app.get('/api/models/analysis', async (req, res) => {
              GROUP BY model_name ORDER BY quota DESC`,
             [start_ts, end_ts]
         );
-        
+
         // 获取模型定价信息
         const modelNames = rows.map(r => r.model_name);
         let modelMap = {};
@@ -177,27 +189,27 @@ app.get('/api/models/analysis', async (req, res) => {
             });
             modelMap = Object.fromEntries(models.map(m => [m.modelName, m]));
         } catch (e) { /* models 表可能不存在 */ }
-        
+
         const models = rows.map(r => ({
             model_name: r.model_name,
             requests: r.requests,
             tokens: r.tokens,
             quota: r.quota,
-            cost: r.quota / 500000,
+            cost: r.quota / QUOTA_PER_UNIT,
             errors: r.errors,
             errorRate: r.requests > 0 ? (r.errors / r.requests * 100).toFixed(2) : 0,
             avgLatency: Math.round(r.avg_latency || 0),
             modelRatio: modelMap[r.model_name]?.modelRatio,
             completionRatio: modelMap[r.model_name]?.completionRatio
         }));
-        
+
         const summary = {
             totalModels: models.length,
             totalRequests: models.reduce((sum, m) => sum + m.requests, 0),
             totalTokens: models.reduce((sum, m) => sum + m.tokens, 0),
             totalCost: models.reduce((sum, m) => sum + m.cost, 0)
         };
-        
+
         res.json({ models, summary });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -207,17 +219,17 @@ app.get('/api/models/analysis', async (req, res) => {
 app.get('/api/models/latency-compare', async (req, res) => {
     const { start_ts, end_ts, models } = req.query;
     const modelList = models ? models.split(',') : [];
-    
+
     try {
         let query = `SELECT model_name, hour, avg_latency, request_count FROM stats WHERE hour >= ? AND hour <= ?`;
         const params = [start_ts, end_ts];
-        
+
         if (modelList.length > 0) {
             query += ` AND model_name IN (${modelList.map(() => '?').join(',')})`;
             params.push(...modelList);
         }
         query += " ORDER BY hour ASC";
-        
+
         const rows = await db.allAsync(query, params);
         res.json(rows);
     } catch (error) {
@@ -230,6 +242,7 @@ app.get('/api/models/latency-compare', async (req, res) => {
 app.get('/api/tokens/overview', async (req, res) => {
     try {
         const tokens = await prisma.token.findMany({
+            where: { deletedAt: null }, // 排除软删除的 Token
             select: {
                 id: true, name: true, status: true,
                 remainQuota: true, usedQuota: true,
@@ -237,7 +250,7 @@ app.get('/api/tokens/overview', async (req, res) => {
                 accessedTime: true, group: true
             }
         });
-        
+
         const now = Math.floor(Date.now() / 1000);
         const result = tokens.map(t => {
             const usedQuota = Number(t.usedQuota) || 0;
@@ -255,18 +268,18 @@ app.get('/api/tokens/overview', async (req, res) => {
                 usedCount: 0,  // 该字段可能不存在于旧版本数据库
                 isExpired: t.expiredTime && t.expiredTime !== BigInt(-1) && Number(t.expiredTime) < now,
                 isExhausted: !t.unlimitedQuota && remainQuota <= 0,
-                usagePercent: t.unlimitedQuota ? null : 
+                usagePercent: t.unlimitedQuota ? null :
                     (usedQuota + remainQuota > 0 ? (usedQuota / (usedQuota + remainQuota) * 100).toFixed(1) : '0')
             };
         });
-        
+
         const statusCount = {
             enabled: result.filter(t => t.status === 1).length,
             disabled: result.filter(t => t.status === 2).length,
             expired: result.filter(t => t.isExpired).length,
             exhausted: result.filter(t => t.isExhausted).length
         };
-        
+
         res.json({ tokens: result, statusCount, total: result.length });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -276,7 +289,7 @@ app.get('/api/tokens/overview', async (req, res) => {
 app.get('/api/tokens/:id/usage', async (req, res) => {
     const { start_ts, end_ts } = req.query;
     const tokenId = parseInt(req.params.id);
-    
+
     try {
         const logs = await prisma.log.findMany({
             where: {
@@ -286,7 +299,7 @@ app.get('/api/tokens/:id/usage', async (req, res) => {
             },
             select: { createdAt: true, quota: true, modelName: true, promptTokens: true, completionTokens: true }
         });
-        
+
         const hourlyUsage = {};
         logs.forEach(log => {
             const hour = Math.floor(Number(log.createdAt) / 3600) * 3600;
@@ -295,12 +308,12 @@ app.get('/api/tokens/:id/usage', async (req, res) => {
             hourlyUsage[hour].requests++;
             hourlyUsage[hour].tokens += log.promptTokens + log.completionTokens;
         });
-        
+
         res.json(Object.entries(hourlyUsage).map(([hour, data]) => ({
             hour: parseInt(hour),
             time: new Date(parseInt(hour) * 1000).toLocaleString(),
             quota: data.quota,
-            cost: data.quota / 500000,
+            cost: data.quota / QUOTA_PER_UNIT,
             requests: data.requests,
             tokens: data.tokens
         })));
@@ -313,7 +326,7 @@ app.get('/api/tokens/:id/usage', async (req, res) => {
 // ==================== 错误日志 API ====================
 app.get('/api/errors', async (req, res) => {
     const { page = 1, pageSize = 50, channel_id, model_name, start_ts, end_ts } = req.query;
-    
+
     try {
         const where = { type: 5 };
         if (channel_id) where.channelId = parseInt(channel_id);
@@ -323,7 +336,7 @@ app.get('/api/errors', async (req, res) => {
             if (start_ts) where.createdAt.gte = parseInt(start_ts);
             if (end_ts) where.createdAt.lte = parseInt(end_ts);
         }
-        
+
         const [total, logs] = await prisma.$transaction([
             prisma.log.count({ where }),
             prisma.log.findMany({
@@ -337,7 +350,7 @@ app.get('/api/errors', async (req, res) => {
                 }
             })
         ]);
-        
+
         res.json({
             logs: logs.map(l => ({
                 id: l.id,
@@ -357,7 +370,7 @@ app.get('/api/errors', async (req, res) => {
 
 app.get('/api/errors/summary', async (req, res) => {
     const { start_ts, end_ts } = req.query;
-    
+
     try {
         const rows = await db.allAsync(
             `SELECT channel_id, model_name, SUM(error_count) as errors, SUM(request_count) as total
@@ -365,7 +378,7 @@ app.get('/api/errors/summary', async (req, res) => {
              GROUP BY channel_id, model_name ORDER BY errors DESC LIMIT 50`,
             [start_ts, end_ts]
         );
-        
+
         res.json(rows.map(r => ({
             channelId: r.channel_id,
             modelName: r.model_name,
@@ -382,7 +395,7 @@ app.get('/api/errors/summary', async (req, res) => {
 // ==================== 性能分析 API ====================
 app.get('/api/analysis/latency', async (req, res) => {
     const { start_ts, end_ts } = req.query;
-    
+
     try {
         // 慢请求 Top 20
         const slowRequests = await prisma.log.findMany({
@@ -422,7 +435,7 @@ app.get('/api/analysis/latency', async (req, res) => {
 // ==================== 原始日志 API ====================
 app.get('/api/logs', async (req, res) => {
     const { page = 1, pageSize = 20, channel_id, model_name, start_ts, end_ts } = req.query;
-    
+
     try {
         const where = { type: 2 };
         if (channel_id) where.channelId = parseInt(channel_id);
@@ -442,7 +455,8 @@ app.get('/api/logs', async (req, res) => {
                 orderBy: { createdAt: 'desc' },
                 select: {
                     id: true, createdAt: true, channelId: true, modelName: true,
-                    useTime: true, promptTokens: true, completionTokens: true, quota: true, content: true
+                    useTime: true, promptTokens: true, completionTokens: true, quota: true, content: true,
+                    ip: true, requestId: true
                 }
             }),
             prisma.log.aggregate({
@@ -456,7 +470,7 @@ app.get('/api/logs', async (req, res) => {
             total, page: parseInt(page), pageSize: parseInt(pageSize),
             stats: {
                 total_tokens: (stats._sum.promptTokens || 0) + (stats._sum.completionTokens || 0),
-                total_cost: (stats._sum.quota || 0) / 500000
+                total_cost: (stats._sum.quota || 0) / QUOTA_PER_UNIT
             }
         });
     } catch (error) {
@@ -552,23 +566,23 @@ async function updateRealtimeStats() {
     try {
         const now = Math.floor(Date.now() / 1000);
         const oneMinuteAgo = now - 60;
-        
+
         const stats = await prisma.log.aggregate({
             where: { createdAt: { gte: oneMinuteAgo }, type: 2 },
             _count: { id: true },
             _sum: { promptTokens: true, completionTokens: true }
         });
-        
+
         const activeChannels = await prisma.log.groupBy({
             by: ['channelId'],
             where: { createdAt: { gte: oneMinuteAgo }, type: 2 }
         });
-        
+
         const activeModels = await prisma.log.groupBy({
             by: ['modelName'],
             where: { createdAt: { gte: oneMinuteAgo }, type: 2 }
         });
-        
+
         realtimeStats = {
             rpm: stats._count.id || 0,
             tpm: (stats._sum.promptTokens || 0) + (stats._sum.completionTokens || 0),
@@ -597,9 +611,10 @@ app.get('/api/model-status/models', async (req, res) => {
 });
 
 app.get('/api/model-status/overview', async (req, res) => {
-    const { window = '24h' } = req.query;
+    const { window = '24h', channel_id } = req.query;
     try {
-        const data = await getAllModelsStatusOverview(window);
+        const channelId = channel_id ? parseInt(channel_id) : null;
+        const data = await getAllModelsStatusOverview(window, channelId);
         res.json({ success: true, data });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -607,10 +622,11 @@ app.get('/api/model-status/overview', async (req, res) => {
 });
 
 app.get('/api/model-status/:modelName', async (req, res) => {
-    const { window = '24h' } = req.query;
+    const { window = '24h', channel_id } = req.query;
     const modelName = decodeURIComponent(req.params.modelName);
     try {
-        const data = await getModelStatus(modelName, window);
+        const channelId = channel_id ? parseInt(channel_id) : null;
+        const data = await getModelStatus(modelName, window, channelId);
         if (!data) {
             return res.status(404).json({ success: false, error: 'Model not found' });
         }
@@ -631,7 +647,7 @@ app.get('/api/dashboard/hourly-trend', async (req, res) => {
     try {
         const now = Math.floor(Date.now() / 1000);
         const startTime = now - (parseInt(hours) * 3600);
-        
+
         const rows = await db.allAsync(
             `SELECT hour, SUM(request_count) as requests, SUM(tokens) as tokens,
              SUM(quota) as quota, SUM(error_count) as errors,
@@ -640,11 +656,11 @@ app.get('/api/dashboard/hourly-trend', async (req, res) => {
              GROUP BY hour ORDER BY hour ASC`,
             [startTime]
         );
-        
+
         // 填充缺失的小时数据
         const hourMap = new Map(rows.map(r => [r.hour, r]));
         const result = [];
-        
+
         for (let h = Math.floor(startTime / 3600) * 3600; h <= now; h += 3600) {
             const data = hourMap.get(h);
             result.push({
@@ -653,12 +669,12 @@ app.get('/api/dashboard/hourly-trend', async (req, res) => {
                 requests: data?.requests || 0,
                 tokens: data?.tokens || 0,
                 quota: data?.quota || 0,
-                cost: (data?.quota || 0) / 500000,
+                cost: (data?.quota || 0) / QUOTA_PER_UNIT,
                 errors: data?.errors || 0,
                 avg_latency: Math.round(data?.avg_latency || 0)
             });
         }
-        
+
         res.json({ success: true, data: result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -674,21 +690,50 @@ app.get('/api/dashboard/model-distribution', async (req, res) => {
              GROUP BY model_name ORDER BY requests DESC LIMIT 10`,
             [start_ts, end_ts]
         );
-        
+
         const total = rows.reduce((sum, r) => sum + r.requests, 0);
         const result = rows.map(r => ({
             name: r.model_name,
             requests: r.requests,
             tokens: r.tokens,
             quota: r.quota,
-            cost: r.quota / 500000,
+            cost: r.quota / QUOTA_PER_UNIT,
             percentage: total > 0 ? parseFloat((r.requests / total * 100).toFixed(2)) : 0
         }));
-        
+
         res.json({ success: true, data: result, total });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+// ==================== 健康检查 & 系统信息 ====================
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        uptime: process.uptime(),
+        startedAt: syncMetrics.startedAt,
+        sync: {
+            lastSyncTime: syncMetrics.lastSyncTime,
+            lastSyncDuration: syncMetrics.lastSyncDuration,
+            totalSyncCount: syncMetrics.totalSyncCount,
+            lastError: syncMetrics.lastError
+        },
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/api/system/info', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            version: '2.0.0',
+            quotaPerUnit: QUOTA_PER_UNIT,
+            maxMonitorModels: parseInt(process.env.MAX_MONITOR_MODELS) || 50,
+            syncInterval: 5000,
+            alertInterval: 60000
+        }
+    });
 });
 
 // ==================== 静态文件服务 ====================
@@ -711,7 +756,7 @@ const wss = new WebSocket.Server({ server });
 wss.on('connection', (ws) => {
     console.log('[WS] Client connected');
     ws.send(JSON.stringify({ type: 'realtime', data: realtimeStats }));
-    
+
     ws.on('close', () => console.log('[WS] Client disconnected'));
 });
 
@@ -729,9 +774,18 @@ function broadcastRealtimeStats() {
 server.listen(PORT, () => {
     console.log(`[SERVER] Running on port ${PORT}`);
 
-    // 日志同步 (每5秒)
+    // 日志同步 (每5秒) + 延迟监控
     setInterval(async () => {
-        await syncLogs();
+        const start = Date.now();
+        try {
+            await syncLogs();
+            syncMetrics.lastSyncTime = new Date().toISOString();
+            syncMetrics.lastSyncDuration = Date.now() - start;
+            syncMetrics.totalSyncCount++;
+            syncMetrics.lastError = null;
+        } catch (e) {
+            syncMetrics.lastError = e.message;
+        }
     }, 5000);
 
     // 告警检查 (每60秒)
