@@ -22,6 +22,8 @@ const TIME_WINDOWS = {
     '24h': { totalSeconds: 86400, numSlots: 24, slotSeconds: 3600 },   // 24小时, 24槽, 1小时/槽
 };
 
+const STATUS_IDLE = 'gray';
+
 // 缓存
 const cache = new Map();
 const CACHE_TTL = 30000; // 30秒缓存
@@ -30,7 +32,7 @@ const CACHE_TTL = 30000; // 30秒缓存
  * 获取状态颜色
  */
 function getStatusColor(successRate, totalRequests) {
-    if (totalRequests === 0) return 'green';
+    if (totalRequests === 0) return STATUS_IDLE;
     if (successRate >= 95) return 'green';
     if (successRate >= 80) return 'yellow';
     return 'red';
@@ -170,8 +172,8 @@ async function getModelStatus(modelName, timeWindow = '24h', channelId = null) {
                 end_time: slotEnd,
                 total_requests: 0,
                 success_count: 0,
-                success_rate: 100,
-                status: 'green'
+                success_rate: null,
+                status: STATUS_IDLE
             });
         }
 
@@ -198,7 +200,7 @@ async function getModelStatus(modelName, timeWindow = '24h', channelId = null) {
             slot.status = getStatusColor(slot.success_rate, slot.total_requests);
         });
 
-        const overallRate = totalRequests > 0 ? parseFloat((totalSuccess / totalRequests * 100).toFixed(2)) : 100;
+        const overallRate = totalRequests > 0 ? parseFloat((totalSuccess / totalRequests * 100).toFixed(2)) : null;
 
         const result = {
             model_name: modelName,
@@ -208,7 +210,7 @@ async function getModelStatus(modelName, timeWindow = '24h', channelId = null) {
             total_requests: totalRequests,
             success_count: totalSuccess,
             success_rate: overallRate,
-            current_status: getStatusColor(overallRate, totalRequests),
+            current_status: getStatusColor(overallRate ?? 0, totalRequests),
             slot_data: slots
         };
 
@@ -266,7 +268,7 @@ async function getAllModelsStatusOverview(timeWindow = '24h', channelId = null) 
     );
 
     // 按状态分组统计
-    const statusCount = { green: 0, yellow: 0, red: 0 };
+    const statusCount = { green: 0, yellow: 0, red: 0, gray: 0 };
     statuses.forEach(s => {
         statusCount[s.current_status]++;
     });
@@ -277,7 +279,8 @@ async function getAllModelsStatusOverview(timeWindow = '24h', channelId = null) 
             total: statuses.length,
             healthy: statusCount.green,
             warning: statusCount.yellow,
-            critical: statusCount.red
+            critical: statusCount.red,
+            idle: statusCount.gray
         },
         time_window: timeWindow,
         channel_id: channelId,

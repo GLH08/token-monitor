@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchTokensOverview } from './api';
 import { Key, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
+import { PageHeader, StatCard, PanelCard, LoadingState, EmptyState } from './components/PageUI';
 
 const Tokens = () => {
     const [tokens, setTokens] = useState([]);
@@ -48,66 +49,47 @@ const Tokens = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center text-white">
-                    <Key size={24} />
-                </div>
-                <h1 className="text-2xl font-bold text-slate-800">Token 管理</h1>
-            </div>
+            <PageHeader
+                icon={Key}
+                iconClassName="from-amber-500 to-orange-600"
+                title="Token 管理"
+            />
 
             {/* 汇总卡片 */}
-            <div className="grid grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                            <Key className="text-slate-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-slate-800">{summary.total}</div>
-                            <div className="text-slate-500 text-sm">总 Token 数</div>
-                        </div>
-                    </div>
-                </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                            <CheckCircle className="text-green-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-green-600">{summary.active}</div>
-                            <div className="text-slate-500 text-sm">正常运行</div>
-                        </div>
-                    </div>
-                </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                            <AlertCircle className="text-yellow-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-yellow-600">{summary.lowQuota}</div>
-                            <div className="text-slate-500 text-sm">额度不足</div>
-                        </div>
-                    </div>
-                </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                            <DollarSign className="text-blue-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-blue-600">{summary.unlimited}</div>
-                            <div className="text-slate-500 text-sm">无限额度</div>
-                        </div>
-                    </div>
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatCard
+                    icon={Key}
+                    value={summary.total}
+                    label="总 Token 数"
+                />
+                <StatCard
+                    icon={CheckCircle}
+                    iconWrapperClassName="bg-green-100"
+                    iconClassName="text-green-600"
+                    value={summary.active}
+                    label="正常运行"
+                    valueClassName="text-green-600"
+                />
+                <StatCard
+                    icon={AlertCircle}
+                    iconWrapperClassName="bg-yellow-100"
+                    iconClassName="text-yellow-600"
+                    value={summary.lowQuota}
+                    label="额度不足"
+                    valueClassName="text-yellow-600"
+                />
+                <StatCard
+                    icon={DollarSign}
+                    iconWrapperClassName="bg-blue-100"
+                    iconClassName="text-blue-600"
+                    value={summary.unlimited}
+                    label="无限额度"
+                    valueClassName="text-blue-600"
+                />
             </div>
 
             {/* Token 列表 */}
-            <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                <div className="p-4 border-b bg-slate-50">
-                    <h2 className="text-lg font-bold text-slate-800">Token 列表</h2>
-                </div>
+            <PanelCard title="Token 列表">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead className="bg-slate-50 border-b">
@@ -158,7 +140,7 @@ const Tokens = () => {
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </PanelCard>
         </div>
     );
 };

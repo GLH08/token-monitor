@@ -4,8 +4,22 @@ const db = require('./db');
 const prisma = new PrismaClient();
 
 const BATCH_SIZE = 1000;
+const MAX_BATCHES_PER_RUN = Number.parseInt(process.env.SYNC_MAX_BATCHES_PER_RUN || '100', 10);
 const LOG_TYPE_CONSUME = 2;
 const LOG_TYPE_ERROR = 5;
+
+const syncState = {
+    lastFetchedCount: 0,
+    lastProcessedBatches: 0,
+    lastProcessedLogs: 0,
+    lastSyncedId: 0,
+    estimatedBacklog: 0,
+    consecutiveFailures: 0,
+    lastSuccessfulSyncAt: null,
+    lastRunStartedAt: null,
+    lastRunFinishedAt: null,
+    lastError: null
+};
 
 async function getMeta(key) {
     return new Promise((resolve, reject) => {
@@ -103,37 +117,79 @@ async function updateStats(logs) {
     });
 }
 
+async function getLatestLogId() {
+    const latestLog = await prisma.log.findFirst({
+        where: {
+            type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+        },
+        orderBy: { id: 'desc' },
+        select: { id: true }
+    });
+
+    return latestLog?.id || 0;
+}
+
+function getSyncState() {
+    return { ...syncState };
+}
+
 async function syncLogs() {
+    syncState.lastRunStartedAt = new Date().toISOString();
+
     try {
         const lastIdStr = await getMeta('last_synced_id');
-        let lastId = lastIdStr ? parseInt(lastIdStr) : 0;
+        let lastId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
+        let processedLogs = 0;
+        let processedBatches = 0;
 
-        // 获取新日志（消费日志和错误日志）
-        const logs = await prisma.log.findMany({
-            where: {
-                id: { gt: lastId },
-                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
-            },
-            take: BATCH_SIZE,
-            orderBy: { id: 'asc' }
-        });
+        while (processedBatches < MAX_BATCHES_PER_RUN) {
+            const logs = await prisma.log.findMany({
+                where: {
+                    id: { gt: lastId },
+                    type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+                },
+                take: BATCH_SIZE,
+                orderBy: { id: 'asc' }
+            });
 
-        if (logs.length === 0) {
-            return 0;
+            syncState.lastFetchedCount = logs.length;
+
+            if (logs.length === 0) {
+                break;
+            }
+
+            processedBatches += 1;
+            processedLogs += logs.length;
+            console.log(`[SYNC] Batch ${processedBatches}: fetched ${logs.length} logs from id>${lastId}`);
+
+            await updateStats(logs);
+
+            lastId = logs[logs.length - 1].id;
+            await setMeta('last_synced_id', lastId.toString());
         }
 
-        console.log(`[SYNC] Fetched ${logs.length} new logs. Processing...`);
+        const latestLogId = await getLatestLogId();
+        syncState.lastProcessedBatches = processedBatches;
+        syncState.lastProcessedLogs = processedLogs;
+        syncState.lastSyncedId = lastId;
+        syncState.estimatedBacklog = Math.max(0, latestLogId - lastId);
+        syncState.lastSuccessfulSyncAt = new Date().toISOString();
+        syncState.lastRunFinishedAt = syncState.lastSuccessfulSyncAt;
+        syncState.consecutiveFailures = 0;
+        syncState.lastError = null;
 
-        await updateStats(logs);
-
-        // 更新最后同步的 ID
-        const newLastId = logs[logs.length - 1].id;
-        await setMeta('last_synced_id', newLastId.toString());
-
-        return logs.length;
+        return {
+            processedLogs,
+            processedBatches,
+            lastSyncedId: lastId,
+            estimatedBacklog: syncState.estimatedBacklog
+        };
     } catch (error) {
-        console.error("[SYNC] Error:", error);
-        return 0;
+        syncState.consecutiveFailures += 1;
+        syncState.lastError = error.message;
+        syncState.lastRunFinishedAt = new Date().toISOString();
+        console.error('[SYNC] Error:', error);
+        throw error;
     }
 }
 
@@ -182,4 +238,53 @@ async function cleanOldData() {
     }
 }
 
-module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, prisma };
+// 重建指定时间范围内的统计数据 (startTs: 秒级时间戳, endTs: 秒级时间戳)
+async function rebuildStatsForDateRange(startTs, endTs) {
+    if (!startTs || !endTs || startTs >= endTs) {
+        throw new Error('Invalid time range for rebuild');
+    }
+
+    // 1. 从 stats 中删除旧有聚合数据
+    await new Promise((resolve, reject) => {
+        db.run("DELETE FROM stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+
+    let processedLogs = 0;
+    let processedBatches = 0;
+    let lastId = 0;
+
+    // 2. 分批拉取对应时间范围内的原始日志并重新聚合
+    while (true) {
+        const logs = await prisma.log.findMany({
+            where: {
+                id: { gt: lastId },
+                createdAt: { gte: BigInt(startTs), lte: BigInt(endTs) },
+                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+            },
+            take: BATCH_SIZE,
+            orderBy: { id: 'asc' }
+        });
+
+        if (logs.length === 0) {
+            break;
+        }
+
+        processedBatches += 1;
+        processedLogs += logs.length;
+        console.log(`[REBUILD] Batch ${processedBatches}: fetched ${logs.length} logs in time range`);
+
+        await updateStats(logs);
+
+        lastId = logs[logs.length - 1].id;
+    }
+
+    await setMeta('last_rebuild_time', new Date().toISOString());
+
+    return { processedLogs, processedBatches, timeRange: { startTs, endTs } };
+}
+
+module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, rebuildStatsForDateRange };
+

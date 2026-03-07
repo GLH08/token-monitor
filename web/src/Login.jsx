@@ -1,17 +1,29 @@
 import React, { useState } from 'react';
 import { Lock, ArrowRight, Activity } from 'lucide-react';
+import { login } from './api';
 
 const Login = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        if (password) {
-            localStorage.setItem('access_token', password);
-            onLogin(password);
-        } else {
+        if (!password) {
             setError('请输入密码');
+            return;
+        }
+
+        setSubmitting(true);
+        setError('');
+
+        try {
+            const result = await login(password);
+            onLogin(result.data);
+        } catch (err) {
+            setError(err.message || '登录失败');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -58,9 +70,10 @@ const Login = ({ onLogin }) => {
 
                     <button
                         type="submit"
-                        className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white py-3.5 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all duration-200 font-bold text-lg flex items-center justify-center gap-2 group active:scale-[0.98]"
+                        disabled={submitting}
+                        className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white py-3.5 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all duration-200 font-bold text-lg flex items-center justify-center gap-2 group active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                        进入系统
+                        {submitting ? '登录中...' : '进入系统'}
                         <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
                     </button>
                 </form>

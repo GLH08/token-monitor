@@ -11,29 +11,70 @@ import Models from './Models';
 import Tokens from './Tokens';
 import Errors from './Errors';
 import ModelStatus from './ModelStatus';
+import { fetchAuthConfig, fetchAuthMe, getStoredToken, logout } from './api';
 
 const App = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('access_token'));
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authEnabled, setAuthEnabled] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      setIsAuthenticated(!!localStorage.getItem('access_token'));
+    const syncAuth = async () => {
+      try {
+        const config = await fetchAuthConfig();
+        const enabled = config?.data?.enabled !== false;
+        setAuthEnabled(enabled);
+
+        if (!enabled) {
+          setIsAuthenticated(true);
+          setAuthLoading(false);
+          return;
+        }
+
+        const token = getStoredToken();
+        if (!token) {
+          setIsAuthenticated(false);
+          setAuthLoading(false);
+          return;
+        }
+
+        await fetchAuthMe();
+        setIsAuthenticated(true);
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setAuthLoading(false);
+      }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+
+    syncAuth();
+
+    const handleAuthChange = () => {
+      syncAuth();
+    };
+
+    window.addEventListener('storage', handleAuthChange);
+    window.addEventListener('auth-changed', handleAuthChange);
+    return () => {
+      window.removeEventListener('storage', handleAuthChange);
+      window.removeEventListener('auth-changed', handleAuthChange);
+    };
   }, []);
 
-  const handleLogin = (token) => {
-    localStorage.setItem('access_token', token);
+  const handleLogin = () => {
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    await logout();
+    setIsAuthenticated(!authEnabled);
   };
 
-  if (!isAuthenticated) {
+  if (authLoading) {
+    return <div className="min-h-screen flex items-center justify-center text-slate-500">加载中...</div>;
+  }
+
+  if (authEnabled && !isAuthenticated) {
     return <Login onLogin={handleLogin} />;
   }
 

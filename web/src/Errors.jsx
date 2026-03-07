@@ -1,154 +1,349 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchErrorLogs } from './api';
-import { AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Filter, Eye, X, Clock3, Server, Cpu, FileText, TimerReset } from 'lucide-react';
+import { EmptyState, FilterBar, LoadingState, PageHeader, PaginationBar, PanelCard, StatCard } from './components/PageUI';
+import { usePaginatedData } from './hooks/usePaginatedData';
+
+const formatTime = (ts) => {
+    if (!ts) {
+        return '-';
+    }
+
+    return new Date(ts * 1000).toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+};
+
+const formatUseTime = (value) => (
+    value === null || value === undefined ? '-' : `${value} ms`
+);
+
+const buildErrorPreview = (log) => {
+    const rawContent = typeof log.content === 'string' ? log.content.trim() : '';
+    if (rawContent) {
+        return rawContent.length > 120 ? `${rawContent.slice(0, 120)}...` : rawContent;
+    }
+
+    const rawOther = typeof log.other === 'string' ? log.other.trim() : '';
+    if (rawOther) {
+        return rawOther.length > 120 ? `${rawOther.slice(0, 120)}...` : rawOther;
+    }
+
+    return '暂无错误详情';
+};
+
+const formatJsonLike = (value, fallback) => {
+    if (!value) {
+        return fallback;
+    }
+
+    if (typeof value === 'string') {
+        try {
+            return JSON.stringify(JSON.parse(value), null, 2);
+        } catch {
+            return value;
+        }
+    }
+
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        return fallback;
+    }
+};
+
+const ErrorDetailsDrawer = ({ log, onClose }) => {
+    if (!log) {
+        return null;
+    }
+
+    const contentText = formatJsonLike(log.content, '暂无 content 字段');
+    const otherText = formatJsonLike(log.other, '暂无 other 字段');
+
+    return (
+        <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-600">
+                            <AlertTriangle size={20} />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800">错误详情</h2>
+                            <p className="text-xs font-mono text-slate-500">ID: {log.id}</p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"
+                        aria-label="关闭错误详情"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="flex-1 space-y-6 overflow-y-auto p-6">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                <Clock3 size={14} /> 时间
+                            </div>
+                            <div className="font-mono text-sm text-slate-700">{formatTime(log.created_at)}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                <TimerReset size={14} /> 耗时
+                            </div>
+                            <div className={`font-mono text-sm ${log.use_time > 2000 ? 'text-amber-600' : 'text-slate-700'}`}>
+                                {formatUseTime(log.use_time)}
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                <Server size={14} /> 渠道
+                            </div>
+                            <div className="font-mono text-sm text-slate-700">{log.channel_id || '-'}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                <Cpu size={14} /> 模型
+                            </div>
+                            <div className="text-sm font-medium text-slate-700">{log.model_name || '-'}</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-700">
+                            <FileText size={16} className="text-slate-400" />
+                            content
+                        </h3>
+                        <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 p-4">
+                            <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-emerald-400">{contentText}</pre>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-700">
+                            <FileText size={16} className="text-slate-400" />
+                            other
+                        </h3>
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700">{otherText}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const Errors = () => {
-    const [logs, setLogs] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [page, setPage] = useState(1);
-    const [total, setTotal] = useState(0);
-    const [filters, setFilters] = useState({ channel_id: '', model_name: '' });
-    const pageSize = 50;
+    const [selectedLog, setSelectedLog] = useState(null);
 
-    useEffect(() => { loadData(); }, [page, filters]);
+    const {
+        data: logs,
+        total,
+        page,
+        setPage,
+        loading,
+        refreshing,
+        error,
+        filters,
+        setFilters,
+        loadData,
+        totalPages
+    } = usePaginatedData(fetchErrorLogs, {
+        channel_id: '',
+        model_name: ''
+    }, { pageSize: 50 });
 
-    const loadData = async () => {
-        setLoading(true);
-        const params = { page, pageSize, ...filters };
-        const result = await fetchErrorLogs(params);
-        setLogs(result.logs || []);
-        setTotal(result.total || 0);
-        setLoading(false);
-    };
+    const loadError = error && logs.length === 0 ? error : '';
+    const refreshError = error && logs.length > 0 ? error : '';
 
-    const formatTime = (ts) => {
-        if (!ts) return '-';
-        return new Date(ts * 1000).toLocaleString('zh-CN', {
-            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
-    };
-
-    const totalPages = Math.ceil(total / pageSize);
+    const summary = useMemo(() => ({
+        total,
+        visible: logs.length,
+        slow: logs.filter((log) => (log.use_time || 0) > 2000).length,
+        withContent: logs.filter((log) => Boolean(log.content)).length,
+    }), [logs, total]);
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center text-white">
-                        <AlertTriangle size={24} />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-800">错误日志</h1>
-                        <p className="text-slate-500 text-sm">共 {total.toLocaleString()} 条错误记录</p>
-                    </div>
-                </div>
-                <button onClick={loadData} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg hover:bg-slate-50 transition">
-                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                    刷新
-                </button>
-            </div>
-
-            {/* 筛选 */}
-            <div className="bg-white p-4 rounded-xl border shadow-sm flex gap-4 items-center">
-                <Filter size={18} className="text-slate-400" />
-                <div className="flex gap-3">
-                    <input
-                        type="text"
-                        placeholder="渠道 ID"
-                        className="px-3 py-1.5 border rounded-lg text-sm w-28 focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none"
-                        value={filters.channel_id}
-                        onChange={e => { setFilters({ ...filters, channel_id: e.target.value }); setPage(1); }}
-                    />
-                    <input
-                        type="text"
-                        placeholder="模型名称"
-                        className="px-3 py-1.5 border rounded-lg text-sm w-40 focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none"
-                        value={filters.model_name}
-                        onChange={e => { setFilters({ ...filters, model_name: e.target.value }); setPage(1); }}
-                    />
-                </div>
-                {(filters.channel_id || filters.model_name) && (
-                    <button onClick={() => { setFilters({ channel_id: '', model_name: '' }); setPage(1); }}
-                        className="text-sm text-red-600 hover:underline">
-                        清除筛选
+            <PageHeader
+                icon={AlertTriangle}
+                iconClassName="from-red-500 to-orange-600"
+                title="错误日志"
+                description={`共 ${total.toLocaleString()} 条错误记录`}
+                actions={
+                    <button
+                        type="button"
+                        onClick={() => loadData({ silent: true })}
+                        className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 transition hover:bg-slate-50"
+                    >
+                        <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                        刷新
                     </button>
-                )}
+                }
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatCard
+                    icon={AlertTriangle}
+                    iconWrapperClassName="bg-red-100"
+                    iconClassName="text-red-600"
+                    value={summary.total.toLocaleString()}
+                    label="错误总数"
+                    valueClassName="text-red-600"
+                />
+                <StatCard
+                    icon={Eye}
+                    iconWrapperClassName="bg-slate-100"
+                    iconClassName="text-slate-600"
+                    value={summary.visible.toLocaleString()}
+                    label="当前页记录"
+                />
+                <StatCard
+                    icon={TimerReset}
+                    iconWrapperClassName="bg-amber-100"
+                    iconClassName="text-amber-600"
+                    value={summary.slow.toLocaleString()}
+                    label="慢错误 (>2s)"
+                    valueClassName="text-amber-600"
+                />
+                <StatCard
+                    icon={FileText}
+                    iconWrapperClassName="bg-blue-100"
+                    iconClassName="text-blue-600"
+                    value={summary.withContent.toLocaleString()}
+                    label="含 content 详情"
+                    valueClassName="text-blue-600"
+                />
             </div>
 
-            {/* 错误列表 */}
-            <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead className="bg-slate-50 border-b">
-                            <tr>
-                                <th className="px-4 py-3 text-left font-semibold text-slate-600">时间</th>
-                                <th className="px-4 py-3 text-left font-semibold text-slate-600">渠道</th>
-                                <th className="px-4 py-3 text-left font-semibold text-slate-600">模型</th>
-                                <th className="px-4 py-3 text-left font-semibold text-slate-600">错误内容</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                            {loading ? (
-                                [...Array(10)].map((_, i) => (
-                                    <tr key={i} className="animate-pulse">
-                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
-                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
-                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
-                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-64"></div></td>
-                                    </tr>
-                                ))
-                            ) : logs.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="px-4 py-12 text-center text-slate-400">
-                                        <AlertTriangle size={48} className="mx-auto mb-3 opacity-30" />
-                                        <p>暂无错误日志</p>
-                                    </td>
-                                </tr>
-                            ) : logs.map((log, i) => (
-                                <tr key={i} className="hover:bg-red-50/50">
-                                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatTime(log.created_at)}</td>
-                                    <td className="px-4 py-3">
-                                        <span className="px-2 py-0.5 bg-slate-100 rounded text-xs font-mono">
-                                            {log.channel_id || '-'}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 font-medium text-slate-700">{log.model_name || '-'}</td>
-                                    <td className="px-4 py-3">
-                                        <div className="max-w-xl truncate text-red-600" title={log.content}>
-                                            {log.content || '-'}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+            <FilterBar
+                icon={Filter}
+                action={(
+                    (filters.channel_id || filters.model_name) ? (
+                        <button
+                            type="button"
+                            onClick={() => { setFilters({ channel_id: '', model_name: '' }); setPage(1); }}
+                            className="text-sm text-red-600 hover:underline"
+                        >
+                            清除筛选
+                        </button>
+                    ) : null
+                )}
+            >
+                <input
+                    type="text"
+                    placeholder="渠道 ID"
+                    className="w-28 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    value={filters.channel_id}
+                    onChange={(event) => { setFilters({ ...filters, channel_id: event.target.value }); }}
+                />
+                <input
+                    type="text"
+                    placeholder="模型名称"
+                    className="w-40 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    value={filters.model_name}
+                    onChange={(event) => { setFilters({ ...filters, model_name: event.target.value }); }}
+                />
+            </FilterBar>
 
-                {/* 分页 */}
-                {totalPages > 1 && (
-                    <div className="p-4 border-t bg-slate-50 flex justify-between items-center">
-                        <span className="text-sm text-slate-500">
-                            第 {page} / {totalPages} 页
-                        </span>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                disabled={page === 1}
-                                className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white transition"
-                            >
-                                <ChevronLeft size={16} />
-                            </button>
-                            <button
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                disabled={page === totalPages}
-                                className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white transition"
-                            >
-                                <ChevronRight size={16} />
-                            </button>
-                        </div>
+            <PanelCard title="错误明细" description="保留表格视图，同时增加摘要与详情抽屉，便于快速定位异常" bodyClassName="p-0">
+                {refreshing ? (
+                    <div className="border-b px-4 py-3 text-right text-sm text-slate-500">正在刷新错误日志...</div>
+                ) : null}
+                {refreshError ? (
+                    <div className="border-b px-4 py-3 text-sm text-red-600">{refreshError}</div>
+                ) : null}
+
+                {loading ? (
+                    <LoadingState label="加载错误日志中..." className="h-64" />
+                ) : loadError ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="加载失败"
+                        description={loadError}
+                        className="py-16"
+                    />
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead className="border-b bg-slate-50">
+                                <tr>
+                                    <th className="px-4 py-3 text-left font-semibold text-slate-600">时间</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-slate-600">渠道</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-slate-600">模型</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-slate-600">错误摘要</th>
+                                    <th className="px-4 py-3 text-right font-semibold text-slate-600">耗时</th>
+                                    <th className="px-4 py-3 text-center font-semibold text-slate-600">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {logs.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6}>
+                                            <EmptyState icon={AlertTriangle} title="暂无错误日志" description="当前筛选条件下没有匹配的错误记录。" />
+                                        </td>
+                                    </tr>
+                                ) : logs.map((log) => (
+                                    <tr key={log.id} className="hover:bg-red-50/40 transition-colors">
+                                        <td className="px-4 py-3 whitespace-nowrap text-slate-500">{formatTime(log.created_at)}</td>
+                                        <td className="px-4 py-3">
+                                            <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono">{log.channel_id || '-'}</span>
+                                        </td>
+                                        <td className="px-4 py-3 font-medium text-slate-700">{log.model_name || '-'}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="space-y-1">
+                                                <div className="max-w-xl text-red-600">{buildErrorPreview(log)}</div>
+                                                {(log.content || log.other) ? (
+                                                    <div className="text-xs text-slate-400">点击“查看详情”可展开完整错误上下文</div>
+                                                ) : null}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            <span className={`font-mono ${log.use_time > 2000 ? 'text-amber-600' : 'text-slate-600'}`}>
+                                                {formatUseTime(log.use_time)}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedLog(log)}
+                                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100"
+                                            >
+                                                <Eye size={14} />
+                                                查看详情
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 )}
-            </div>
+
+                {totalPages > 1 ? (
+                    <PaginationBar
+                        page={page}
+                        totalPages={totalPages}
+                        summary={`第 ${page} / ${totalPages} 页，共 ${total.toLocaleString()} 条`}
+                        className="bg-slate-50"
+                        pageClassName="text-slate-500"
+                        onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+                        onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+                    />
+                ) : null}
+            </PanelCard>
+
+            <ErrorDetailsDrawer log={selectedLog} onClose={() => setSelectedLog(null)} />
         </div>
     );
 };

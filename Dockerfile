@@ -1,36 +1,35 @@
-# Stage 1: Build frontend
+# Stage 1: Build Frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm install
+RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-# Stage 2: Build backend and combine
+# Stage 2: Build Backend & Combine
 FROM node:20-alpine
 WORKDIR /app
 
-# Install dependencies
+# Add dependencies required by Prisma / native modules
+RUN apk add --no-cache openssl
+
+# Install backend dependencies
 COPY server/package*.json ./
-RUN apk add --no-cache openssl dos2unix
-RUN npm install
+RUN npm ci
 
-# Copy server code
+# Copy backend source code including prisma schema
 COPY server/ ./
+RUN npx prisma generate
 
-# Copy frontend build to public folder
+# Mount frontend dist output to backend public folder
 COPY --from=frontend-builder /app/web/dist ./public
 
-# Set up entrypoint script
-RUN dos2unix /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
-
-# Create data directory
+# Setup data persistence directory for SQLite
 RUN mkdir -p /app/data
 
-# Set production environment
 ENV NODE_ENV=production
 ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["/app/docker-entrypoint.sh"]
+CMD ["node", "index.js"]

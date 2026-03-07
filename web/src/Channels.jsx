@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchChannelsOverview, fetchChannelPerformance } from './api';
 import { Server, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { EmptyState, PageHeader, PanelCard, StatCard, TIME_RANGE_PRESETS, TimeRangeTabs } from './components/PageUI';
 
 const TYPE_MAP = {
     1: 'OpenAI', 3: 'Azure', 8: 'Claude', 11: 'Google', 14: 'Anthropic',
@@ -48,76 +49,55 @@ const Channels = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white">
-                        <Server size={24} />
-                    </div>
-                    <h1 className="text-2xl font-bold text-slate-800">渠道监控</h1>
-                </div>
-                <div className="flex gap-2 bg-white p-1 rounded-lg border">
-                    {['1h', '6h', '24h', '7d'].map(p => (
-                        <button key={p} onClick={() => setPeriod(p)}
-                            className={`px-4 py-1.5 rounded-md text-sm font-bold transition ${period === p ? 'bg-blue-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
-                            {p}
-                        </button>
-                    ))}
-                </div>
+            <PageHeader
+                icon={Server}
+                iconClassName="from-blue-500 to-indigo-600"
+                title="渠道监控"
+                description="查看渠道状态分布、请求排行与性能明细"
+                actions={
+                    <TimeRangeTabs
+                        value={period}
+                        onChange={setPeriod}
+                        options={TIME_RANGE_PRESETS.short}
+                        activeClassName="bg-blue-500 text-white"
+                    />
+                }
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatCard
+                    icon={Server}
+                    value={overview.total || 0}
+                    label="总渠道数"
+                />
+                <StatCard
+                    icon={CheckCircle}
+                    iconWrapperClassName="bg-green-100"
+                    iconClassName="text-green-600"
+                    value={overview.statusCount?.enabled || 0}
+                    label="正常运行"
+                    valueClassName="text-green-600"
+                />
+                <StatCard
+                    icon={XCircle}
+                    iconWrapperClassName="bg-yellow-100"
+                    iconClassName="text-yellow-600"
+                    value={overview.statusCount?.disabled || 0}
+                    label="手动禁用"
+                    valueClassName="text-yellow-600"
+                />
+                <StatCard
+                    icon={AlertTriangle}
+                    iconWrapperClassName="bg-red-100"
+                    iconClassName="text-red-600"
+                    value={overview.statusCount?.autoDisabled || 0}
+                    label="自动禁用"
+                    valueClassName="text-red-600"
+                />
             </div>
 
-            {/* 状态卡片 */}
-            <div className="grid grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                            <Server className="text-slate-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-slate-800">{overview.total || 0}</div>
-                            <div className="text-slate-500 text-sm">总渠道数</div>
-                        </div>
-                    </div>
-                </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                            <CheckCircle className="text-green-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-green-600">{overview.statusCount?.enabled || 0}</div>
-                            <div className="text-slate-500 text-sm">正常运行</div>
-                        </div>
-                    </div>
-                </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                            <XCircle className="text-yellow-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-yellow-600">{overview.statusCount?.disabled || 0}</div>
-                            <div className="text-slate-500 text-sm">手动禁用</div>
-                        </div>
-                    </div>
-                </div>
-                <div className="bg-white p-5 rounded-xl border shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                            <AlertTriangle className="text-red-600" size={24} />
-                        </div>
-                        <div>
-                            <div className="text-3xl font-bold text-red-600">{overview.statusCount?.autoDisabled || 0}</div>
-                            <div className="text-slate-500 text-sm">自动禁用</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 简洁进度条图表 */}
-            <div className="grid grid-cols-2 gap-6">
-                {/* 渠道状态分布 */}
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h2 className="text-lg font-bold text-slate-800 mb-4">渠道状态分布</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <PanelCard title="渠道状态分布" bodyClassName="p-6">
                     <div className="space-y-4">
                         <div>
                             <div className="flex justify-between items-center mb-1">
@@ -150,11 +130,9 @@ const Channels = () => {
                             </div>
                         </div>
                     </div>
-                </div>
+                </PanelCard>
 
-                {/* 请求量排行 */}
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h2 className="text-lg font-bold text-slate-800 mb-4">请求量 Top 10</h2>
+                <PanelCard title="请求量 Top 10" bodyClassName="p-6">
                     <div className="space-y-3">
                         {loading ? (
                             [...Array(5)].map((_, i) => (
@@ -163,7 +141,7 @@ const Channels = () => {
                                 </div>
                             ))
                         ) : performance.length === 0 ? (
-                            <div className="text-center text-slate-400 py-8">暂无数据</div>
+                            <EmptyState title="暂无数据" className="py-8" />
                         ) : performance.slice(0, 10).map((ch, i) => (
                             <div key={ch.channelId}>
                                 <div className="flex justify-between items-center mb-1">
@@ -179,14 +157,10 @@ const Channels = () => {
                             </div>
                         ))}
                     </div>
-                </div>
+                </PanelCard>
             </div>
 
-            {/* 渠道性能表格 */}
-            <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                <div className="p-4 border-b bg-slate-50">
-                    <h2 className="text-lg font-bold text-slate-800">渠道性能详情</h2>
-                </div>
+            <PanelCard title="渠道性能详情">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead className="bg-slate-50 border-b">
@@ -215,9 +189,8 @@ const Channels = () => {
                                 ))
                             ) : performance.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
-                                        <Server size={48} className="mx-auto mb-3 opacity-30" />
-                                        <p>暂无渠道数据</p>
+                                    <td colSpan={7}>
+                                        <EmptyState icon={Server} title="暂无渠道数据" />
                                     </td>
                                 </tr>
                             ) : performance.map(ch => (
@@ -249,7 +222,7 @@ const Channels = () => {
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </PanelCard>
         </div>
     );
 };

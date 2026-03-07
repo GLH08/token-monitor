@@ -1,37 +1,24 @@
+version: '3.8'
+
 services:
-  monitor-server:
-    build: ./server
-    container_name: token-monitor-server
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: token-monitor
     restart: always
     ports:
-      - "3001:3001"
+      - "5173:3000"
     environment:
-      # MySQL 格式:
-      # DATABASE_URL: mysql://用户名:密码@IP地址:3306/数据库名
-      # PostgreSQL 格式:
-      # DATABASE_URL: postgresql://用户名:密码@IP地址:5432/数据库名
-      DATABASE_URL: ${DATABASE_URL}
-      ACCESS_PASSWORD: ${ACCESS_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL:-}
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
-      # 额度转美元单位（与 new-api 的 QuotaPerUnit 保持一致，默认 500000）
       QUOTA_PER_UNIT: ${QUOTA_PER_UNIT:-500000}
-      # 最大监控模型数量（默认 50）
       MAX_MONITOR_MODELS: ${MAX_MONITOR_MODELS:-50}
       NODE_ENV: production
     volumes:
       - monitor-data:/app/data
-
-  monitor-web:
-    build: ./web
-    container_name: token-monitor-web
-    restart: always
-    ports:
-      - "3002:80"
-    depends_on:
-      - monitor-server
-    environment:
-      VITE_API_URL: http://monitor-server:3001
 
 volumes:
   monitor-data:

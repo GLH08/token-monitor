@@ -1,173 +1,160 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAlerts, createAlert, deleteAlert, updateAlert, toggleAlert } from './api';
-import { Trash2, Plus, Bell, Zap, Edit, ToggleLeft, ToggleRight, Calendar, X, Check, Clock } from 'lucide-react';
+import { Trash2, Plus, Bell, Zap, Edit, ToggleLeft, ToggleRight } from 'lucide-react';
+import CustomDateTimePicker from './components/CustomDateTimePicker';
+import { EmptyState, LoadingState, PageHeader, PanelCard, StatCard } from './components/PageUI';
 
-// Custom Date Time Picker Component (from LogsTable)
-const CustomDateTimePicker = ({ label, value, onChange }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [tempDate, setTempDate] = useState('');
-    const [tempHour, setTempHour] = useState('00');
-    const [tempMinute, setTempMinute] = useState('00');
-    const containerRef = useRef(null);
+const DEFAULT_FORM_DATA = {
+    name: '',
+    type: 'channel',
+    target: '',
+    threshold: 1000,
+    period: 'daily',
+    customStartTime: '',
+    customEndTime: '',
+    start_time: '00:00',
+    end_time: '23:59',
+    notify_telegram: true,
+    trigger_action: 'notify'
+};
 
-    useEffect(() => {
-        if (value) {
-            const d = new Date(value);
-            setTempDate(d.toISOString().split('T')[0]);
-            setTempHour(String(d.getHours()).padStart(2, '0'));
-            setTempMinute(String(d.getMinutes()).padStart(2, '0'));
-        } else {
-            const now = new Date();
-            setTempDate(now.toISOString().split('T')[0]);
-            setTempHour(String(now.getHours()).padStart(2, '0'));
-            setTempMinute(String(now.getMinutes()).padStart(2, '0'));
-        }
-    }, [value, isOpen]);
+const PERIOD_LABELS = {
+    '1h': '最近 1 小时',
+    '6h': '最近 6 小时',
+    '12h': '最近 12 小时',
+    '24h': '最近 24 小时',
+    '48h': '最近 48 小时',
+    '72h': '最近 72 小时',
+    '168h': '最近 7 天',
+    '720h': '最近 30 天',
+    daily: '自然日',
+    today: '自然日'
+};
 
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (containerRef.current && !containerRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
-        };
-        if (isOpen) document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [isOpen]);
-
-    const handleConfirm = () => {
-        if (tempDate) {
-            const dateStr = `${tempDate}T${tempHour}:${tempMinute}`;
-            onChange(dateStr);
-        }
-        setIsOpen(false);
-    };
-
-    const handleClear = (e) => {
-        e.stopPropagation();
-        onChange('');
-        setIsOpen(false);
-    };
-
-    const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-    const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
-
-    return (
-        <div className="relative" ref={containerRef}>
-            <div
-                className={`flex items-center gap-2 cursor-pointer px-3 py-2 border border-gray-300 rounded-lg transition-colors ${value ? 'text-slate-700 bg-white' : 'text-slate-400 bg-gray-50 hover:bg-white'}`}
-                onClick={() => setIsOpen(!isOpen)}
-            >
-                <Calendar size={16} className="text-gray-400" />
-                <span className="text-sm truncate">
-                    {value ? new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }) : label}
-                </span>
-                {value && (
-                    <button onClick={handleClear} className="p-0.5 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600">
-                        <X size={12} />
-                    </button>
-                )}
-            </div>
-
-            {isOpen && (
-                <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-4 z-50 w-[280px] animate-in fade-in zoom-in-95 duration-200">
-                    <div className="space-y-4">
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 ml-1">日期</label>
-                            <input
-                                type="date"
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-slate-700"
-                                value={tempDate}
-                                onChange={e => setTempDate(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1">
-                                <Clock size={12} /> 时间
-                            </label>
-                            <div className="flex items-center gap-2">
-                                <div className="relative flex-1">
-                                    <select
-                                        className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-slate-700 bg-white"
-                                        value={tempHour}
-                                        onChange={e => setTempHour(e.target.value)}
-                                    >
-                                        {hours.map(h => <option key={h} value={h}>{h} 时</option>)}
-                                    </select>
-                                </div>
-                                <span className="text-slate-300 font-bold">:</span>
-                                <div className="relative flex-1">
-                                    <select
-                                        className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-slate-700 bg-white"
-                                        value={tempMinute}
-                                        onChange={e => setTempMinute(e.target.value)}
-                                    >
-                                        {minutes.map(m => <option key={m} value={m}>{m} 分</option>)}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleConfirm}
-                            className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white py-2 rounded-lg font-bold text-sm hover:shadow-md hover:shadow-indigo-500/20 transition-all flex items-center justify-center gap-2"
-                        >
-                            <Check size={16} /> 确认
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
+const formatCustomRange = (startTs, endTs) => {
+    const format = (ts, fallback) => (
+        ts
+            ? new Date(ts * 1000).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+            : fallback
     );
+
+    return `${format(startTs, '起始')} → ${format(endTs, '当前')}`;
+};
+
+const getPeriodDisplay = (rule) => {
+    if (rule.period === 'custom') {
+        return formatCustomRange(rule.customStartTs, rule.customEndTs);
+    }
+    return PERIOD_LABELS[rule.period] || rule.period || '未设置';
+};
+
+const parseRule = (value) => {
+    if (!value) {
+        return {};
+    }
+
+    if (typeof value === 'object') {
+        return value;
+    }
+
+    try {
+        return JSON.parse(value);
+    } catch (error) {
+        console.error('Failed to parse alert rule:', error);
+        return {};
+    }
+};
+
+const ensureAlertMutationSucceeded = (result, { allowId = false, fallbackMessage }) => {
+    if (!result || typeof result !== 'object') {
+        throw new Error(fallbackMessage);
+    }
+
+    if (result.error) {
+        throw new Error(result.error);
+    }
+
+    if (result.success === true || (allowId && Number.isInteger(result.id))) {
+        return result;
+    }
+
+    throw new Error(fallbackMessage);
 };
 
 const Alerts = () => {
     const [alerts, setAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState(null);
+    const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+    const hasLoadedRef = useRef(false);
 
-    const [formData, setFormData] = useState({
-        name: '',
-        type: 'channel',
-        target: '',
-        threshold: 1000,
-        period: 'daily',
-        customStartTime: '',
-        customEndTime: '',
-        start_time: '00:00',
-        end_time: '23:59',
-        notify_telegram: true,
-        trigger_action: 'notify'
-    });
+    const normalizedAlerts = useMemo(() => alerts.map((alert) => {
+        const rule = parseRule(alert.rule);
+        return {
+            ...alert,
+            rule,
+            isEnabled: Boolean(alert.enabled),
+            telegramEnabled: Boolean(alert.notify_telegram),
+        };
+    }), [alerts]);
+
+    const summary = useMemo(() => ({
+        total: normalizedAlerts.length,
+        enabled: normalizedAlerts.filter((alert) => alert.isEnabled).length,
+        circuitBreakers: normalizedAlerts.filter((alert) => alert.trigger_action === 'disable').length,
+        telegram: normalizedAlerts.filter((alert) => alert.telegramEnabled).length,
+    }), [normalizedAlerts]);
+
+    const resetForm = useCallback(() => {
+        setFormData(DEFAULT_FORM_DATA);
+    }, []);
+
+    const closeForm = useCallback(() => {
+        setShowForm(false);
+        setEditingId(null);
+        resetForm();
+    }, [resetForm]);
+
+    const loadAlerts = useCallback(async ({ silent = false } = {}) => {
+        if (silent && hasLoadedRef.current) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
+        try {
+            const data = await fetchAlerts();
+            if (!Array.isArray(data)) {
+                throw new Error(data?.error || 'Failed to load alerts');
+            }
+
+            setAlerts(data);
+            hasLoadedRef.current = true;
+            return true;
+        } catch (error) {
+            console.error('Failed to load alerts:', error);
+            return false;
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
 
     useEffect(() => {
         loadAlerts();
-    }, []);
+    }, [loadAlerts]);
 
-    const loadAlerts = async () => {
+    const handleSubmit = async (event) => {
+        event.preventDefault();
         try {
-            const data = await fetchAlerts();
-            setAlerts(data);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        try {
-            // Build rule object
             const rule = {
                 type: formData.type,
                 target: formData.target,
-                threshold: parseInt(formData.threshold),
-                period: formData.period
+                threshold: Number.parseInt(formData.threshold, 10),
+                period: formData.period,
             };
 
-            // If custom period, add custom time range
             if (formData.period === 'custom') {
                 if (formData.customStartTime) {
                     rule.customStartTs = Math.floor(new Date(formData.customStartTime).getTime() / 1000);
@@ -184,44 +171,62 @@ const Alerts = () => {
                 start_time: formData.start_time,
                 end_time: formData.end_time,
                 notify_telegram: formData.notify_telegram,
-                trigger_action: formData.trigger_action
+                trigger_action: formData.trigger_action,
             };
 
             if (editingId) {
-                await updateAlert(editingId, payload);
+                ensureAlertMutationSucceeded(await updateAlert(editingId, payload), {
+                    fallbackMessage: 'Failed to update alert'
+                });
             } else {
-                await createAlert(payload);
+                ensureAlertMutationSucceeded(await createAlert(payload), {
+                    allowId: true,
+                    fallbackMessage: 'Failed to create alert'
+                });
             }
 
-            setShowForm(false);
-            setEditingId(null);
-            resetForm();
-            loadAlerts();
+            closeForm();
+            const refreshed = await loadAlerts({ silent: true });
+            if (!refreshed) {
+                window.alert('Alert saved, but refreshing the latest rule list failed. Please refresh again.');
+            }
         } catch (error) {
-            alert('Failed to save alert');
+            window.alert('Failed to save alert');
         }
     };
 
     const handleDelete = async (id) => {
-        if (confirm('Are you sure?')) {
-            await deleteAlert(id);
-            loadAlerts();
+        if (!window.confirm('Are you sure?')) {
+            return;
+        }
+
+        try {
+            ensureAlertMutationSucceeded(await deleteAlert(id), {
+                fallbackMessage: 'Failed to delete alert'
+            });
+
+            const refreshed = await loadAlerts({ silent: true });
+            if (!refreshed) {
+                window.alert('Alert deleted, but refreshing the latest rule list failed. Please refresh again.');
+            }
+        } catch (error) {
+            window.alert(error.message || 'Failed to delete alert');
         }
     };
 
     const handleEdit = (alert) => {
-        const rule = JSON.parse(alert.rule);
+        const rule = parseRule(alert.rule);
         setFormData({
             name: alert.name,
-            type: rule.type,
-            target: rule.target,
-            threshold: rule.threshold,
+            type: rule.type || 'channel',
+            target: rule.target || '',
+            threshold: rule.threshold ?? 1000,
             period: rule.period || 'daily',
             customStartTime: rule.customStartTs ? new Date(rule.customStartTs * 1000).toISOString().slice(0, 16) : '',
             customEndTime: rule.customEndTs ? new Date(rule.customEndTs * 1000).toISOString().slice(0, 16) : '',
             start_time: alert.start_time || '00:00',
             end_time: alert.end_time || '23:59',
-            notify_telegram: !!alert.notify_telegram,
+            notify_telegram: Boolean(alert.notify_telegram),
             trigger_action: alert.trigger_action || 'notify'
         });
         setEditingId(alert.id);
@@ -230,94 +235,233 @@ const Alerts = () => {
 
     const handleToggle = async (alert) => {
         try {
-            await toggleAlert(alert.id, !alert.enabled);
-            loadAlerts();
+            ensureAlertMutationSucceeded(await toggleAlert(alert.id, !alert.isEnabled), {
+                fallbackMessage: 'Failed to update alert status'
+            });
+
+            const refreshed = await loadAlerts({ silent: true });
+            if (!refreshed) {
+                window.alert('Alert status updated, but refreshing the latest rule list failed. Please refresh again.');
+            }
         } catch (error) {
-            console.error("Toggle failed", error);
+            console.error('Toggle failed', error);
+            window.alert(error.message || 'Failed to update alert status');
         }
     };
 
-    const resetForm = () => {
-        setFormData({
-            name: '',
-            type: 'channel',
-            target: '',
-            threshold: 1000,
-            period: 'daily',
-            customStartTime: '',
-            customEndTime: '',
-            start_time: '00:00',
-            end_time: '23:59',
-            notify_telegram: true,
-            trigger_action: 'notify'
-        });
-    };
-
     return (
-        <div className="p-6 max-w-6xl mx-auto">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-800">告警配置 (Alerts)</h1>
-                    <p className="text-gray-500 text-sm mt-1">管理 Token 使用量告警规则与熔断策略</p>
-                </div>
-                <button
-                    onClick={() => { setShowForm(true); setEditingId(null); resetForm(); }}
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
-                >
-                    <Plus size={18} />
-                    新建告警
-                </button>
+        <div className="space-y-6">
+            <PageHeader
+                icon={Bell}
+                iconClassName="from-indigo-500 to-violet-600"
+                title="告警配置"
+                description="管理 Token 使用量告警规则与熔断策略"
+                actions={(
+                    <button
+                        type="button"
+                        onClick={() => { setShowForm(true); setEditingId(null); resetForm(); }}
+                        className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white transition hover:bg-indigo-700"
+                    >
+                        <Plus size={18} />
+                        新建告警
+                    </button>
+                )}
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatCard
+                    icon={Bell}
+                    iconWrapperClassName="bg-indigo-100"
+                    iconClassName="text-indigo-600"
+                    value={summary.total}
+                    label="告警规则数"
+                    valueClassName="text-indigo-600"
+                />
+                <StatCard
+                    icon={ToggleRight}
+                    iconWrapperClassName="bg-emerald-100"
+                    iconClassName="text-emerald-600"
+                    value={summary.enabled}
+                    label="启用中"
+                    valueClassName="text-emerald-600"
+                />
+                <StatCard
+                    icon={Zap}
+                    iconWrapperClassName="bg-red-100"
+                    iconClassName="text-red-600"
+                    value={summary.circuitBreakers}
+                    label="熔断规则"
+                    valueClassName="text-red-600"
+                />
+                <StatCard
+                    icon={Bell}
+                    iconWrapperClassName="bg-blue-100"
+                    iconClassName="text-blue-600"
+                    value={summary.telegram}
+                    label="Telegram 通知"
+                    valueClassName="text-blue-600"
+                />
             </div>
 
-            {showForm && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-                    <div className="bg-white p-8 rounded-xl w-full max-w-lg shadow-2xl transform transition-all">
-                        <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">
-                            {editingId ? '编辑告警规则' : '新建告警规则'}
-                        </h2>
-                        <form onSubmit={handleSubmit} className="space-y-5">
+            <PanelCard
+                title="规则列表"
+                description="查看当前生效范围、统计周期、通知方式与熔断状态"
+                bodyClassName="p-4 md:p-6"
+            >
+                {refreshing ? (
+                    <div className="mb-4 flex items-center justify-end text-sm text-slate-500">
+                        <span>正在刷新规则...</span>
+                    </div>
+                ) : null}
+                {loading ? (
+                    <LoadingState label="加载告警规则中..." className="h-48" />
+                ) : normalizedAlerts.length === 0 ? (
+                    <EmptyState icon={Bell} title="暂无告警规则" description="创建第一条规则后，这里会显示告警策略与熔断配置。" />
+                ) : (
+                    <div className="space-y-4">
+                        {normalizedAlerts.map((alert) => (
+                            <div key={alert.id} className="rounded-xl border bg-white p-5 shadow-sm transition hover:shadow-md">
+                                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                    <div className="flex items-start gap-4 min-w-0">
+                                        <div className={`rounded-xl p-3 ${alert.isEnabled ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                                            <Bell size={22} />
+                                        </div>
+                                        <div className="min-w-0 space-y-3">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h3 className={`text-lg font-semibold ${alert.isEnabled ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                    {alert.name}
+                                                </h3>
+                                                {alert.trigger_action === 'disable' ? (
+                                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
+                                                        <Zap size={12} />
+                                                        熔断开启
+                                                    </span>
+                                                ) : null}
+                                                {!alert.isEnabled ? (
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+                                                        已禁用
+                                                    </span>
+                                                ) : null}
+                                                {alert.telegramEnabled ? (
+                                                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                                                        Telegram 通知
+                                                    </span>
+                                                ) : null}
+                                            </div>
+
+                                            <div className="flex flex-wrap gap-2 text-sm">
+                                                <span className="rounded-lg bg-slate-100 px-3 py-1 text-slate-700">
+                                                    {alert.rule.type === 'channel' ? '渠道' : '模型'}：{alert.rule.target || '-'}
+                                                </span>
+                                                <span className="rounded-lg bg-amber-50 px-3 py-1 text-amber-700">
+                                                    阈值：{Number(alert.rule.threshold || 0).toLocaleString()}
+                                                </span>
+                                                <span className="rounded-lg bg-indigo-50 px-3 py-1 text-indigo-700">
+                                                    周期：{getPeriodDisplay(alert.rule)}
+                                                </span>
+                                                <span className="rounded-lg bg-slate-50 px-3 py-1 text-slate-600">
+                                                    生效时段：{alert.start_time || '00:00'} - {alert.end_time || '23:59'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 self-end xl:self-auto">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleToggle(alert)}
+                                            className={`rounded-lg p-2 transition ${alert.isEnabled ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'}`}
+                                            title={alert.isEnabled ? '点击禁用' : '点击启用'}
+                                            aria-label={alert.isEnabled ? '禁用规则' : '启用规则'}
+                                        >
+                                            {alert.isEnabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleEdit(alert)}
+                                            className="rounded-lg p-2 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600"
+                                            title="编辑"
+                                            aria-label="编辑规则"
+                                        >
+                                            <Edit size={20} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDelete(alert.id)}
+                                            className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                                            title="删除"
+                                            aria-label="删除规则"
+                                        >
+                                            <Trash2 size={20} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </PanelCard>
+
+            {showForm ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={editingId ? '编辑告警规则' : '新建告警规则'}
+                        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+                    >
+                        <div className="border-b bg-slate-50 px-6 py-4">
+                            <h2 className="text-xl font-bold text-slate-800">
+                                {editingId ? '编辑告警规则' : '新建告警规则'}
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-500">
+                                配置监控对象、统计周期、通知方式与熔断动作。
+                            </p>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-6 p-6">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">规则名称</label>
+                                <label className="mb-1 block text-sm font-medium text-slate-700">规则名称</label>
                                 <input
-                                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                     value={formData.name}
-                                    onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                    onChange={(event) => setFormData({ ...formData, name: event.target.value })}
                                     placeholder="例如：OpenAI 渠道日限额"
                                     required
                                 />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">监控对象类型</label>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">监控对象类型</label>
                                     <select
-                                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                         value={formData.type}
-                                        onChange={e => setFormData({ ...formData, type: e.target.value })}
+                                        onChange={(event) => setFormData({ ...formData, type: event.target.value })}
                                     >
                                         <option value="channel">渠道 (Channel ID)</option>
                                         <option value="model">模型 (Model Name)</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">对象标识</label>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">对象标识</label>
                                     <input
-                                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                         value={formData.target}
-                                        onChange={e => setFormData({ ...formData, target: e.target.value })}
-                                        placeholder={formData.type === 'channel' ? "例如: 1" : "例如: gpt-4"}
+                                        onChange={(event) => setFormData({ ...formData, target: event.target.value })}
+                                        placeholder={formData.type === 'channel' ? '例如: 1' : '例如: gpt-4'}
                                         required
                                     />
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">统计周期</label>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">统计周期</label>
                                     <select
-                                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                         value={formData.period}
-                                        onChange={e => setFormData({ ...formData, period: e.target.value })}
+                                        onChange={(event) => setFormData({ ...formData, period: event.target.value })}
                                     >
                                         <option value="1h">最近 1 小时</option>
                                         <option value="6h">最近 6 小时</option>
@@ -332,106 +476,113 @@ const Alerts = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">阈值 (Tokens)</label>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">阈值 (Tokens)</label>
                                     <input
                                         type="number"
-                                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                         value={formData.threshold}
-                                        onChange={e => setFormData({ ...formData, threshold: e.target.value })}
+                                        onChange={(event) => setFormData({ ...formData, threshold: event.target.value })}
                                         required
                                     />
                                 </div>
                             </div>
 
-                            {/* Custom Time Range (shown when period is 'custom') */}
-                            {formData.period === 'custom' && (
-                                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                                    <label className="block text-sm font-medium text-indigo-700 mb-3">自定义统计时间范围</label>
-                                    <div className="grid grid-cols-2 gap-4">
+                            {formData.period === 'custom' ? (
+                                <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                                    <label className="mb-3 block text-sm font-medium text-indigo-700">自定义统计时间范围</label>
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         <div>
-                                            <label className="block text-xs text-gray-500 mb-1">开始时间</label>
+                                            <label className="mb-1 block text-xs text-slate-500">开始时间</label>
                                             <CustomDateTimePicker
                                                 label="选择开始时间"
                                                 value={formData.customStartTime}
-                                                onChange={val => setFormData({ ...formData, customStartTime: val })}
+                                                onChange={(value) => setFormData({ ...formData, customStartTime: value })}
+                                                showCalendarIcon
+                                                triggerClassName="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-white"
+                                                inputAccentClassName="focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                                                buttonGradientClassName="from-indigo-500 to-indigo-600 hover:shadow-indigo-500/20"
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs text-gray-500 mb-1">结束时间 (留空表示到当前)</label>
+                                            <label className="mb-1 block text-xs text-slate-500">结束时间 (留空表示到当前)</label>
                                             <CustomDateTimePicker
                                                 label="选择结束时间"
                                                 value={formData.customEndTime}
-                                                onChange={val => setFormData({ ...formData, customEndTime: val })}
+                                                onChange={(value) => setFormData({ ...formData, customEndTime: value })}
+                                                showCalendarIcon
+                                                triggerClassName="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-white"
+                                                inputAccentClassName="focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                                                buttonGradientClassName="from-indigo-500 to-indigo-600 hover:shadow-indigo-500/20"
                                             />
                                         </div>
                                     </div>
-                                    <p className="text-xs text-indigo-600 mt-2">
-                                        💡 提示：自定义时间范围用于统计历史固定时段的 Token 总量，适合月度/季度统计
+                                    <p className="mt-2 text-xs text-indigo-600">
+                                        提示：自定义时间范围适合统计历史固定时段的 Token 总量。
                                     </p>
                                 </div>
-                            )}
+                            ) : null}
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">生效开始时间</label>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">生效开始时间</label>
                                     <input
                                         type="time"
-                                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                         value={formData.start_time}
-                                        onChange={e => setFormData({ ...formData, start_time: e.target.value })}
+                                        onChange={(event) => setFormData({ ...formData, start_time: event.target.value })}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">生效结束时间</label>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">生效结束时间</label>
                                     <input
                                         type="time"
-                                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                         value={formData.end_time}
-                                        onChange={e => setFormData({ ...formData, end_time: e.target.value })}
+                                        onChange={(event) => setFormData({ ...formData, end_time: event.target.value })}
                                     />
                                 </div>
                             </div>
 
                             <div>
-                                <label className="flex items-center gap-2 cursor-pointer">
+                                <label className="flex items-center gap-2 text-sm text-slate-700">
                                     <input
                                         type="checkbox"
                                         checked={formData.notify_telegram}
-                                        onChange={e => setFormData({ ...formData, notify_telegram: e.target.checked })}
-                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                                        onChange={(event) => setFormData({ ...formData, notify_telegram: event.target.checked })}
+                                        className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
                                     />
-                                    <span className="text-sm text-gray-700">启用 Telegram 通知</span>
+                                    启用 Telegram 通知
                                 </label>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">触发动作</label>
+                                <label className="mb-1 block text-sm font-medium text-slate-700">触发动作</label>
                                 <select
-                                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                                     value={formData.trigger_action}
-                                    onChange={e => setFormData({ ...formData, trigger_action: e.target.value })}
+                                    onChange={(event) => setFormData({ ...formData, trigger_action: event.target.value })}
                                 >
                                     <option value="notify">仅通知 (Notify Only)</option>
                                     <option value="disable">通知并禁用渠道 (Circuit Breaker)</option>
                                 </select>
-                                <p className="text-xs text-gray-500 mt-1">
+                                <p className="mt-1 text-xs text-slate-500">
                                     {formData.trigger_action === 'disable'
-                                        ? '⚠️ 警告：触发后将自动调用 New API 禁用该渠道。仅对"渠道"类型规则生效。'
+                                        ? '警告：触发后将自动调用 New API 禁用该渠道，仅对“渠道”类型规则生效。'
                                         : '仅发送通知，不会影响渠道状态。'}
                                 </p>
                             </div>
 
-                            <div className="flex justify-end gap-3 mt-6">
+                            <div className="flex justify-end gap-3 border-t pt-4">
                                 <button
                                     type="button"
-                                    onClick={() => setShowForm(false)}
-                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                    onClick={closeForm}
+                                    className="rounded-lg px-4 py-2 text-slate-600 transition hover:bg-slate-100"
                                 >
                                     取消
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                                    className="rounded-lg bg-indigo-600 px-4 py-2 text-white transition hover:bg-indigo-700"
                                 >
                                     保存规则
                                 </button>
@@ -439,93 +590,7 @@ const Alerts = () => {
                         </form>
                     </div>
                 </div>
-            )}
-
-            {loading ? (
-                <div className="space-y-4">
-                    {[1, 2, 3].map(i => (
-                        <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />
-                    ))}
-                </div>
-            ) : (
-                <div className="grid gap-4">
-                    {alerts.map(alert => {
-                        const rule = JSON.parse(alert.rule);
-                        // Format period display
-                        const getPeriodDisplay = () => {
-                            if (rule.period === 'custom') {
-                                const start = rule.customStartTs ? new Date(rule.customStartTs * 1000).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }) : '起始';
-                                const end = rule.customEndTs ? new Date(rule.customEndTs * 1000).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }) : '当前';
-                                return `${start} → ${end}`;
-                            }
-                            const periodMap = {
-                                '1h': '最近1小时', '6h': '最近6小时', '12h': '最近12小时',
-                                '24h': '最近24小时', '48h': '最近48小时', '72h': '最近72小时',
-                                '168h': '最近7天', '720h': '最近30天', 'daily': '自然日', 'today': '自然日'
-                            };
-                            return periodMap[rule.period] || rule.period;
-                        };
-                        return (
-                            <div key={alert.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow flex justify-between items-center">
-                                <div className="flex items-start gap-4">
-                                    <div className={`p-3 rounded-lg ${alert.enabled ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>
-                                        <Bell size={24} />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h3 className={`font-semibold text-lg ${!alert.enabled && 'text-gray-400'}`}>{alert.name}</h3>
-                                            {alert.trigger_action === 'disable' && (
-                                                <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium flex items-center gap-1">
-                                                    <Zap size={10} /> 熔断开启
-                                                </span>
-                                            )}
-                                            {!alert.enabled && (
-                                                <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">已禁用</span>
-                                            )}
-                                        </div>
-                                        <div className="text-gray-500 mt-1 flex flex-wrap items-center gap-2 text-sm">
-                                            <span className="bg-gray-100 px-2 py-0.5 rounded">
-                                                {rule.type === 'channel' ? '渠道' : '模型'}: {rule.target}
-                                            </span>
-                                            <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded">阈值: {rule.threshold.toLocaleString()}</span>
-                                            <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">周期: {getPeriodDisplay()}</span>
-                                            <span className="bg-gray-50 px-2 py-0.5 rounded">生效时段: {alert.start_time}-{alert.end_time}</span>
-                                        </div>
-                                        {alert.notify_telegram === 1 && (
-                                            <div className="flex gap-2 mt-2">
-                                                <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">Telegram 通知</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={() => handleToggle(alert)}
-                                        className={`p-2 rounded-lg transition-colors ${alert.enabled ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}
-                                        title={alert.enabled ? "点击禁用" : "点击启用"}
-                                    >
-                                        {alert.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
-                                    </button>
-                                    <button
-                                        onClick={() => handleEdit(alert)}
-                                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                        title="编辑"
-                                    >
-                                        <Edit size={20} />
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(alert.id)}
-                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                        title="删除"
-                                    >
-                                        <Trash2 size={20} />
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
+            ) : null}
         </div>
     );
 };
