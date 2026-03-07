@@ -162,8 +162,8 @@ const Layout = ({ children, onLogout }) => {
     }, [mobileMenuOpen]);
 
     const renderNavItems = () => navGroups.map((group) => (
-        <div key={group.title} className="space-y-2">
-            <div className="px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">{group.title}</div>
+        <div key={group.title} className="space-y-1">
+            <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{group.title}</div>
             {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.path;
@@ -177,12 +177,12 @@ const Layout = ({ children, onLogout }) => {
                             setMobileMenuOpen(false);
                         }}
                         aria-current={isActive ? 'page' : undefined}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${isActive
+                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-200 font-medium ${isActive
                             ? 'bg-cyan-50 text-cyan-600 shadow-sm'
                             : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                             }`}
                     >
-                        <Icon size={20} className={isActive ? 'text-cyan-500' : 'text-slate-400'} />
+                        <Icon size={18} className={isActive ? 'text-cyan-500' : 'text-slate-400'} />
                         {item.label}
                     </Link>
                 );
@@ -192,12 +192,12 @@ const Layout = ({ children, onLogout }) => {
 
     const renderSidebarContent = (showMobileClose = false) => (
         <>
-            <div className="p-6 flex items-center justify-between gap-3">
+            <div className="p-4 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-cyan-500/30">
-                        <Activity size={24} />
+                    <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg flex items-center justify-center text-white shadow-md shadow-cyan-500/30">
+                        <Activity size={18} />
                     </div>
-                    <h1 className="text-xl font-bold text-slate-800 tracking-tight">
+                    <h1 className="text-base font-bold text-slate-800 tracking-tight">
                         TokenMonitor
                     </h1>
                 </div>
@@ -217,14 +217,14 @@ const Layout = ({ children, onLogout }) => {
                 ) : null}
             </div>
 
-            <nav className="flex-1 px-4 pb-6 space-y-6 overflow-auto">
+            <nav className="flex-1 px-3 pb-3 space-y-3 overflow-auto">
                 {renderNavItems()}
             </nav>
 
-            <div className="p-4 border-t border-slate-100">
+            <div className="p-3 border-t border-slate-100">
                 <button
                     onClick={onLogout}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200 font-medium"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200 font-medium"
                 >
                     <LogOut size={20} />
                     退出登录
@@ -247,14 +247,14 @@ const Layout = ({ children, onLogout }) => {
                         role="dialog"
                         aria-modal="true"
                         aria-label="主导航"
-                        className="relative inset-y-0 left-0 w-72 h-full bg-white shadow-lg flex flex-col"
+                        className="relative inset-y-0 left-0 w-52 h-full bg-white shadow-lg flex flex-col"
                     >
                         {renderSidebarContent(true)}
                     </div>
                 </div>
             ) : null}
 
-            <div ref={desktopSidebarRef} className="hidden md:flex md:w-72 bg-white shadow-lg md:flex-col">
+            <div ref={desktopSidebarRef} className="hidden md:flex md:w-52 bg-white shadow-lg md:flex-col">
                 {renderSidebarContent(false)}
             </div>
 
