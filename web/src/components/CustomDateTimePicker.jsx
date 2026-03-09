@@ -79,7 +79,7 @@ const CustomDateTimePicker = ({
                     {value ? new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }) : label}
                 </span>
                 {value && (
-                    <button onClick={handleClear} className="p-0.5 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600">
+                    <button type="button" onClick={handleClear} className="p-0.5 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600">
                         <X size={12} />
                     </button>
                 )}
@@ -126,6 +126,7 @@ const CustomDateTimePicker = ({
                         </div>
 
                         <button
+                            type="button"
                             onClick={handleConfirm}
                             className={`w-full bg-gradient-to-r text-white py-2 rounded-lg font-bold text-sm hover:shadow-md transition-all flex items-center justify-center gap-2 ${confirmButtonClassName}`.trim()}
                         >
