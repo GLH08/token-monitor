@@ -36,19 +36,7 @@ const CustomDateTimePicker = ({
         }
     }, [value, isOpen]);
 
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (containerRef.current && !containerRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
-        };
-
-        if (isOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
-
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [isOpen]);
+    // removed global mousedown listener in favor of fixed overlay
 
     const handleConfirm = () => {
         if (tempDate) {
@@ -86,54 +74,57 @@ const CustomDateTimePicker = ({
             </div>
 
             {isOpen && (
-                <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-4 z-50 w-[280px] animate-in fade-in zoom-in-95 duration-200">
-                    <div className="space-y-4">
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 ml-1">日期</label>
-                            <input
-                                type="date"
-                                className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 ${accentClassName}`.trim()}
-                                value={tempDate}
-                                onChange={e => setTempDate(e.target.value)}
-                            />
-                        </div>
+                <>
+                    <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}></div>
+                    <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-4 z-50 w-[280px] animate-in fade-in zoom-in-95 duration-200">
+                        <div className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 ml-1">日期</label>
+                                <input
+                                    type="date"
+                                    className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 ${accentClassName}`.trim()}
+                                    value={tempDate}
+                                    onChange={e => setTempDate(e.target.value)}
+                                />
+                            </div>
 
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1">
-                                <Clock size={12} /> 时间
-                            </label>
-                            <div className="flex items-center gap-2">
-                                <div className="relative flex-1">
-                                    <select
-                                        className={`w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 bg-white ${accentClassName}`.trim()}
-                                        value={tempHour}
-                                        onChange={e => setTempHour(e.target.value)}
-                                    >
-                                        {hours.map(h => <option key={h} value={h}>{h} 时</option>)}
-                                    </select>
-                                </div>
-                                <span className="text-slate-300 font-bold">:</span>
-                                <div className="relative flex-1">
-                                    <select
-                                        className={`w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 bg-white ${accentClassName}`.trim()}
-                                        value={tempMinute}
-                                        onChange={e => setTempMinute(e.target.value)}
-                                    >
-                                        {minutes.map(m => <option key={m} value={m}>{m} 分</option>)}
-                                    </select>
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 ml-1 flex items-center gap-1">
+                                    <Clock size={12} /> 时间
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <div className="relative flex-1">
+                                        <select
+                                            className={`w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 bg-white ${accentClassName}`.trim()}
+                                            value={tempHour}
+                                            onChange={e => setTempHour(e.target.value)}
+                                        >
+                                            {hours.map(h => <option key={h} value={h}>{h} 时</option>)}
+                                        </select>
+                                    </div>
+                                    <span className="text-slate-300 font-bold">:</span>
+                                    <div className="relative flex-1">
+                                        <select
+                                            className={`w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 bg-white ${accentClassName}`.trim()}
+                                            value={tempMinute}
+                                            onChange={e => setTempMinute(e.target.value)}
+                                        >
+                                            {minutes.map(m => <option key={m} value={m}>{m} 分</option>)}
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <button
-                            type="button"
-                            onClick={handleConfirm}
-                            className={`w-full bg-gradient-to-r text-white py-2 rounded-lg font-bold text-sm hover:shadow-md transition-all flex items-center justify-center gap-2 ${confirmButtonClassName}`.trim()}
-                        >
-                            <Check size={16} /> 确认
-                        </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirm}
+                                className={`w-full bg-gradient-to-r text-white py-2 rounded-lg font-bold text-sm hover:shadow-md transition-all flex items-center justify-center gap-2 ${confirmButtonClassName}`.trim()}
+                            >
+                                <Check size={16} /> 确认
+                            </button>
+                        </div>
                     </div>
-                </div>
+                </>
             )}
         </div>
     );
