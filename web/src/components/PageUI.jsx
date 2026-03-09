@@ -136,13 +136,13 @@ export const PanelCard = ({ title, description, children, className = '', bodyCl
 );
 
 export const FilterBar = ({ icon: Icon, children, action, className = '', contentClassName = 'flex flex-wrap gap-3' }) => (
-    <PanelCard bodyClassName={`p-4 ${className}`.trim()}>
+    <div className={`bg-white rounded-xl border shadow-sm p-4 ${className}`.trim()}>
         <div className="flex flex-wrap items-center gap-4">
             {Icon ? <Icon size={18} className="text-slate-400" /> : null}
             <div className={`flex-1 ${contentClassName}`.trim()}>{children}</div>
             {action ? <div className="flex items-center gap-2">{action}</div> : null}
         </div>
-    </PanelCard>
+    </div>
 );
 
 export const PaginationBar = ({
