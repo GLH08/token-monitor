@@ -90,6 +90,8 @@
 
 您可以完全忽略拉取项目全量代码的操作：
 
+远程镜像同时提供 `linux/amd64` 与 `linux/arm64` 平台支持，可直接用于常见 x86 服务器和 ARM 设备。
+
 ```bash
 # 1. 创建你的存放目录
 mkdir token-monitor && cd token-monitor
