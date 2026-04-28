@@ -21,6 +21,38 @@ const syncState = {
     lastError: null
 };
 
+function getNestedNumber(source, path) {
+    const value = path.reduce((current, key) => current && current[key], source);
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function parseCacheHitTokens(other) {
+    if (!other) {
+        return 0;
+    }
+
+    try {
+        const parsed = typeof other === 'string' ? JSON.parse(other) : other;
+        if (!parsed || typeof parsed !== 'object') {
+            return 0;
+        }
+
+        const candidates = [
+            ['cached_tokens'],
+            ['cache_hit_tokens'],
+            ['cacheHitTokens'],
+            ['cache_read_input_tokens'],
+            ['prompt_tokens_details', 'cached_tokens'],
+            ['usage', 'prompt_tokens_details', 'cached_tokens'],
+            ['input_token_details', 'cache_read']
+        ];
+
+        return candidates.reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
+    } catch (error) {
+        return 0;
+    }
+}
+
 async function getMeta(key) {
     return new Promise((resolve, reject) => {
         db.get("SELECT value FROM meta WHERE key = ?", [key], (err, row) => {
@@ -71,13 +103,14 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
             const usageStmt = includeUsageStats ? db.prepare(`
                 INSERT INTO usage_stats (
                     hour, user_group, channel_id, model_name, token_id,
-                    prompt_tokens, completion_tokens, tokens, request_count, quota, error_count, avg_latency
+                    prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(hour, user_group, channel_id, model_name, token_id)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
                     completion_tokens = completion_tokens + excluded.completion_tokens,
+                    cache_hit_tokens = cache_hit_tokens + excluded.cache_hit_tokens,
                     tokens = tokens + excluded.tokens,
                     request_count = request_count + excluded.request_count,
                     quota = quota + excluded.quota,
@@ -104,6 +137,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                 const totalTokens = promptTokens + completionTokens;
                 const quota = log.quota || 0;
                 const latency = log.useTime || 0;
+                const cacheHitTokens = parseCacheHitTokens(log.other);
                 const errorCount = log.type === LOG_TYPE_ERROR ? 1 : 0;
 
                 if (includeStats) {
@@ -139,6 +173,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             tokenId,
                             promptTokens: 0,
                             completionTokens: 0,
+                            cacheHitTokens: 0,
                             tokens: 0,
                             requestCount: 0,
                             quota: 0,
@@ -149,6 +184,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     const usageAgg = usageAggregated[usageKey];
                     usageAgg.promptTokens += promptTokens;
                     usageAgg.completionTokens += completionTokens;
+                    usageAgg.cacheHitTokens += cacheHitTokens;
                     usageAgg.tokens += totalTokens;
                     usageAgg.requestCount++;
                     usageAgg.quota += quota;
@@ -184,6 +220,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.tokenId,
                         agg.promptTokens,
                         agg.completionTokens,
+                        agg.cacheHitTokens,
                         agg.tokens,
                         agg.requestCount,
                         agg.quota,
@@ -433,24 +470,30 @@ async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
 }
 
 async function ensureUsageStatsBackfill() {
-    const completed = await getMeta('usage_stats_backfilled_v1');
-    if (completed) {
-        return { skipped: true };
-    }
-
     const lastIdStr = await getMeta('last_synced_id');
     const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
     if (!lastSyncedId) {
         await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
+        await setMeta('usage_stats_cache_hit_backfilled_v1', new Date().toISOString());
         return { skipped: true };
     }
 
     const endTs = Math.floor(Date.now() / 1000);
     const startTs = endTs - 30 * 24 * 3600;
+    const completed = await getMeta('usage_stats_backfilled_v1');
+    const cacheHitCompleted = await getMeta('usage_stats_cache_hit_backfilled_v1');
+
+    if (completed && cacheHitCompleted) {
+        return { skipped: true };
+    }
+
     const result = await rebuildUsageStatsForDateRange(startTs, endTs, lastSyncedId);
-    await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
+    if (!completed) {
+        await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
+    }
+    await setMeta('usage_stats_cache_hit_backfilled_v1', new Date().toISOString());
     return result;
 }
 
-module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, rebuildStatsForDateRange, ensureUsageStatsBackfill };
+module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, rebuildStatsForDateRange, ensureUsageStatsBackfill, parseCacheHitTokens };
 

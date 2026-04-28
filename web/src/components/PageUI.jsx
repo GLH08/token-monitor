@@ -195,18 +195,43 @@ export const LoadingState = ({ label = '加载中...', className = 'h-64' }) => 
     </div>
 );
 
+export const FilterSelect = ({
+    label,
+    value,
+    onChange,
+    options = [],
+    allLabel = '全部',
+    className = 'bg-white',
+    selectClassName = ''
+}) => {
+    const normalizedValue = value ?? '';
+    const hasCurrentValue = !normalizedValue || options.some((option) => String(option.value) === String(normalizedValue));
+
+    return (
+        <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border ${className}`.trim()}>
+            {label ? <span className="text-sm text-slate-500 whitespace-nowrap">{label}</span> : null}
+            <select
+                value={normalizedValue}
+                onChange={(e) => onChange(e.target.value)}
+                className={`text-sm border-none outline-none bg-transparent text-slate-700 cursor-pointer py-1 max-w-56 ${selectClassName}`.trim()}
+            >
+                <option value="">{allLabel}</option>
+                {!hasCurrentValue ? <option value={normalizedValue}>{normalizedValue}</option> : null}
+                {options.map((option) => (
+                    <option key={String(option.value)} value={option.value}>{option.label}</option>
+                ))}
+            </select>
+        </div>
+    );
+};
+
 export const ChannelSelect = ({ channels, value, onChange, className = 'bg-white' }) => (
-    <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border ${className}`}>
-        <span className="text-sm text-slate-500">渠道范围</span>
-        <select
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="text-sm border-none outline-none bg-transparent text-slate-700 cursor-pointer py-1"
-        >
-            <option value="">全部渠道</option>
-            {channels.map((channel) => (
-                <option key={channel.id} value={channel.id}>{channel.name}</option>
-            ))}
-        </select>
-    </div>
+    <FilterSelect
+        label="渠道范围"
+        value={value}
+        onChange={onChange}
+        className={className}
+        allLabel="全部渠道"
+        options={channels.map((channel) => ({ value: channel.id, label: channel.name }))}
+    />
 );

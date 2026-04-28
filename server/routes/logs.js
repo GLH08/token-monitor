@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { prisma } = require('../syncer');
+const { prisma, parseCacheHitTokens } = require('../syncer');
 const {
     parseTimeRange,
     parseOptionalId,
@@ -23,7 +23,7 @@ router.get('/logs', async (req, res) => {
     try {
         const where = { type: 2 };
         if (channelId !== null) where.channelId = channelId;
-        if (req.query.model_name) where.modelName = { contains: req.query.model_name };
+        if (req.query.model_name) where.modelName = req.query.model_name;
         if (timeRange.startTs !== null || timeRange.endTs !== null) {
             where.createdAt = {};
             if (timeRange.startTs !== null) where.createdAt.gte = timeRange.startTs;
@@ -39,7 +39,8 @@ router.get('/logs', async (req, res) => {
                 orderBy: { createdAt: 'desc' },
                 select: {
                     id: true, createdAt: true, channelId: true, modelName: true,
-                    useTime: true, promptTokens: true, completionTokens: true, quota: true, content: true,
+                    tokenId: true, tokenName: true, group: true,
+                    useTime: true, promptTokens: true, completionTokens: true, quota: true, content: true, other: true,
                     ip: true, requestId: true
                 }
             }),
@@ -50,7 +51,21 @@ router.get('/logs', async (req, res) => {
         ]);
 
         res.json({
-            data: logs.map(l => ({ ...l, createdAt: l.createdAt.toString() })),
+            data: logs.map(l => {
+                const inputTokens = l.promptTokens || 0;
+                const outputTokens = l.completionTokens || 0;
+                const billingQuota = l.quota || 0;
+                return {
+                    ...l,
+                    createdAt: l.createdAt.toString(),
+                    inputTokens,
+                    outputTokens,
+                    cacheHitTokens: parseCacheHitTokens(l.other),
+                    totalTokens: inputTokens + outputTokens,
+                    billingQuota,
+                    cost: billingQuota / QUOTA_PER_UNIT
+                };
+            }),
             total, page: pagination.page, pageSize: pagination.pageSize,
             stats: {
                 total_tokens: (stats._sum.promptTokens || 0) + (stats._sum.completionTokens || 0),
@@ -74,7 +89,7 @@ router.get('/errors', async (req, res) => {
     try {
         const where = { type: 5 };
         if (channelId !== null) where.channelId = channelId;
-        if (req.query.model_name) where.modelName = { contains: req.query.model_name };
+        if (req.query.model_name) where.modelName = req.query.model_name;
         if (timeRange.startTs !== null || timeRange.endTs !== null) {
             where.createdAt = {};
             if (timeRange.startTs !== null) where.createdAt.gte = timeRange.startTs;
@@ -90,7 +105,8 @@ router.get('/errors', async (req, res) => {
                 orderBy: { createdAt: 'desc' },
                 select: {
                     id: true, createdAt: true, channelId: true,
-                    modelName: true, content: true, other: true, useTime: true
+                    modelName: true, tokenId: true, tokenName: true, group: true,
+                    content: true, other: true, useTime: true
                 }
             })
         ]);
@@ -101,6 +117,9 @@ router.get('/errors', async (req, res) => {
                 created_at: Number(l.createdAt),
                 channel_id: l.channelId,
                 model_name: l.modelName,
+                token_id: l.tokenId,
+                token_name: l.tokenName,
+                group: l.group,
                 content: l.content,
                 other: l.other,
                 use_time: l.useTime

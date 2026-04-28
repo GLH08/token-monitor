@@ -1,8 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchErrorLogs } from './api';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchAvailableModels, fetchErrorLogs } from './api';
 import { AlertTriangle, RefreshCw, Filter, Eye, X, Clock3, Server, Cpu, FileText, TimerReset } from 'lucide-react';
-import { EmptyState, FilterBar, LoadingState, PageHeader, PaginationBar, PanelCard, StatCard } from './components/PageUI';
+import { ChannelSelect, EmptyState, FilterBar, FilterSelect, LoadingState, PageHeader, PaginationBar, PanelCard, StatCard } from './components/PageUI';
 import { usePaginatedData } from './hooks/usePaginatedData';
+import { useChannels } from './hooks/useChannels';
+import CustomDateTimePicker from './components/CustomDateTimePicker';
+
+const toModelOptions = (result) => {
+    const models = Array.isArray(result?.data) ? result.data : [];
+    return models.map((model) => ({
+        value: model.model_name,
+        label: model.is_active ? `${model.model_name} (${model.request_count_24h || 0})` : model.model_name
+    }));
+};
+
+const fromDateTimeInput = (value) => value ? Math.floor(new Date(value).getTime() / 1000) : '';
 
 const formatTime = (ts) => {
     if (!ts) {
@@ -116,6 +128,19 @@ const ErrorDetailsDrawer = ({ log, onClose }) => {
                             </div>
                             <div className="text-sm font-medium text-slate-700">{log.model_name || '-'}</div>
                         </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                <FileText size={14} /> Token
+                            </div>
+                            <div className="text-sm font-medium text-slate-700 break-all">{log.token_name || '-'}</div>
+                            <div className="font-mono text-xs text-slate-400">#{log.token_id || '-'}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                <Filter size={14} /> 分组
+                            </div>
+                            <div className="text-sm font-medium text-slate-700 break-all">{log.group || '-'}</div>
+                        </div>
                     </div>
 
                     <div>
@@ -145,6 +170,9 @@ const ErrorDetailsDrawer = ({ log, onClose }) => {
 
 const Errors = () => {
     const [selectedLog, setSelectedLog] = useState(null);
+    const [dateInputs, setDateInputs] = useState({ start: '', end: '' });
+    const [modelOptions, setModelOptions] = useState([]);
+    const { channels } = useChannels();
 
     const {
         data: logs,
@@ -160,9 +188,44 @@ const Errors = () => {
         totalPages
     } = usePaginatedData(fetchErrorLogs, {
         channel_id: '',
-        model_name: ''
+        model_name: '',
+        start_ts: '',
+        end_ts: ''
     }, { pageSize: 50 });
 
+    useEffect(() => {
+        let cancelled = false;
+        fetchAvailableModels()
+            .then((result) => {
+                if (!cancelled) {
+                    setModelOptions(toModelOptions(result));
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    console.error('Load model options error:', error);
+                    setModelOptions([]);
+                }
+            });
+        return () => { cancelled = true; };
+    }, []);
+
+    const applyFilters = () => {
+        setFilters({
+            ...filters,
+            start_ts: fromDateTimeInput(dateInputs.start),
+            end_ts: fromDateTimeInput(dateInputs.end)
+        });
+        setPage(1);
+    };
+
+    const clearFilters = () => {
+        setDateInputs({ start: '', end: '' });
+        setFilters({ channel_id: '', model_name: '', start_ts: '', end_ts: '' });
+        setPage(1);
+    };
+
+    const hasFilters = Boolean(filters.channel_id || filters.model_name || filters.start_ts || filters.end_ts || dateInputs.start || dateInputs.end);
     const loadError = error && logs.length === 0 ? error : '';
     const refreshError = error && logs.length > 0 ? error : '';
 
@@ -184,7 +247,7 @@ const Errors = () => {
                     <button
                         type="button"
                         onClick={() => loadData({ silent: true })}
-                        className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 transition hover:bg-slate-50"
+                        className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
                     >
                         <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
                         刷新
@@ -228,32 +291,34 @@ const Errors = () => {
 
             <FilterBar
                 icon={Filter}
+                contentClassName="flex flex-wrap gap-3 items-center"
                 action={(
-                    (filters.channel_id || filters.model_name) ? (
+                    hasFilters ? (
                         <button
                             type="button"
-                            onClick={() => { setFilters({ channel_id: '', model_name: '' }); setPage(1); }}
-                            className="text-sm text-red-600 hover:underline"
+                            onClick={clearFilters}
+                            className="text-sm text-red-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 rounded"
                         >
                             清除筛选
                         </button>
                     ) : null
                 )}
             >
-                <input
-                    type="text"
-                    placeholder="渠道 ID"
-                    className="w-28 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
-                    value={filters.channel_id}
-                    onChange={(event) => { setFilters({ ...filters, channel_id: event.target.value }); }}
-                />
-                <input
-                    type="text"
-                    placeholder="模型名称"
-                    className="w-40 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
-                    value={filters.model_name}
-                    onChange={(event) => { setFilters({ ...filters, model_name: event.target.value }); }}
-                />
+                <ChannelSelect channels={channels} value={filters.channel_id} onChange={(value) => { setFilters({ ...filters, channel_id: value }); setPage(1); }} />
+                <FilterSelect label="模型" value={filters.model_name} onChange={(value) => { setFilters({ ...filters, model_name: value }); setPage(1); }} options={modelOptions} allLabel="全部模型" selectClassName="max-w-72" />
+                <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5">
+                    <Clock3 size={16} className="text-slate-400" />
+                    <CustomDateTimePicker label="开始时间" value={dateInputs.start} onChange={(value) => setDateInputs({ ...dateInputs, start: value })} />
+                    <span className="text-slate-300">→</span>
+                    <CustomDateTimePicker label="结束时间" value={dateInputs.end} onChange={(value) => setDateInputs({ ...dateInputs, end: value })} />
+                    <button
+                        type="button"
+                        onClick={applyFilters}
+                        className="rounded-md bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
+                    >
+                        应用
+                    </button>
+                </div>
             </FilterBar>
 
             <PanelCard title="错误明细" description="保留表格视图，同时增加摘要与详情抽屉，便于快速定位异常" bodyClassName="p-0">
@@ -299,7 +364,14 @@ const Errors = () => {
                                         <td className="px-4 py-3">
                                             <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono">{log.channel_id || '-'}</span>
                                         </td>
-                                        <td className="px-4 py-3 font-medium text-slate-700">{log.model_name || '-'}</td>
+                                        <td className="px-4 py-3 font-medium text-slate-700 max-w-[280px]">
+                                            <div className="whitespace-normal break-all" title={log.model_name || '-'}>{log.model_name || '-'}</div>
+                                            {(log.token_name || log.token_id || log.group) ? (
+                                                <div className="mt-1 text-xs text-slate-400 break-all">
+                                                    {log.token_name || (log.token_id ? `Token #${log.token_id}` : '')}{log.group ? ` · ${log.group}` : ''}
+                                                </div>
+                                            ) : null}
+                                        </td>
                                         <td className="px-4 py-3">
                                             <div className="space-y-1">
                                                 <div className="max-w-xl text-red-600">{buildErrorPreview(log)}</div>
@@ -317,7 +389,7 @@ const Errors = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => setSelectedLog(log)}
-                                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100"
+                                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                                             >
                                                 <Eye size={14} />
                                                 查看详情

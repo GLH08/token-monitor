@@ -122,6 +122,8 @@ export const fetchUsageBreakdown = (filters) => authFetch(withQuery('/usage/brea
 
 export const fetchUsageTimeseries = (filters) => authFetch(withQuery('/usage/timeseries', filters));
 
+export const fetchUsageFilterOptions = (filters) => authFetch(withQuery('/usage/filter-options', filters));
+
 // ==================== 错误日志 ====================
 export const fetchErrorLogs = (params) => authFetch(withQuery('/errors', params));
 

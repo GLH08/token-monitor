@@ -45,6 +45,7 @@ function initDB() {
             token_id INTEGER,
             prompt_tokens INTEGER DEFAULT 0,
             completion_tokens INTEGER DEFAULT 0,
+            cache_hit_tokens INTEGER DEFAULT 0,
             tokens INTEGER DEFAULT 0,
             request_count INTEGER DEFAULT 0,
             quota INTEGER DEFAULT 0,
@@ -58,6 +59,15 @@ function initDB() {
         db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_channel_hour ON usage_stats(channel_id, hour)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_model_hour ON usage_stats(model_name, hour)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_token_hour ON usage_stats(token_id, hour)`);
+        // Migration: usage_stats 表添加新列
+        db.all("PRAGMA table_info(usage_stats)", (err, columns) => {
+            if (!err && columns) {
+                const columnNames = columns.map(col => col.name);
+                if (!columnNames.includes('cache_hit_tokens')) {
+                    db.run("ALTER TABLE usage_stats ADD COLUMN cache_hit_tokens INTEGER DEFAULT 0");
+                }
+            }
+        });
 
         // ==================== 告警规则表 ====================
         db.run(`CREATE TABLE IF NOT EXISTS alerts (

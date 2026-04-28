@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { BarChart3, Coins, DollarSign, Filter, Hash, RotateCcw, Server, TrendingUp } from 'lucide-react';
+import { BarChart3, Coins, DollarSign, Filter, Hash, RotateCcw, TrendingUp, Database, Upload, Download, Clock } from 'lucide-react';
+import { fetchUsageFilterOptions } from './api';
 import { useUsageAnalysis } from './hooks/useUsageAnalysis';
 import { useChannels } from './hooks/useChannels';
+import CustomDateTimePicker from './components/CustomDateTimePicker';
 import {
     ChannelSelect,
     EmptyState,
     FilterBar,
+    FilterSelect,
     LoadingState,
     PageHeader,
     PanelCard,
@@ -35,7 +38,8 @@ const WINDOW_SECONDS = {
 const METRIC_OPTIONS = [
     { value: 'cost', label: '成本' },
     { value: 'tokens', label: 'Token' },
-    { value: 'requests', label: '请求' }
+    { value: 'requests', label: '请求' },
+    { value: 'quota', label: 'Quota' }
 ];
 
 const DIMENSION_OPTIONS = [
@@ -46,20 +50,27 @@ const DIMENSION_OPTIONS = [
 ];
 
 const formatCompact = (value) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value || 0);
+const formatInteger = (value) => Math.round(value || 0).toLocaleString();
 const formatCost = (value) => `$${(value || 0).toFixed(4)}`;
-const formatMetric = (metric, value) => metric === 'cost' ? formatCost(value) : formatCompact(value);
 const metricLabel = (metric) => METRIC_OPTIONS.find((option) => option.value === metric)?.label || '成本';
+const toDateTimeInput = (timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(Number(timestamp) * 1000);
+    const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return offsetDate.toISOString().slice(0, 16);
+};
+const fromDateTimeInput = (value) => value ? Math.floor(new Date(value).getTime() / 1000) : null;
 
 const UsageTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     return (
-        <div className="bg-white/95 border border-slate-200 shadow-xl rounded-xl px-4 py-3">
-            <div className="text-sm font-semibold text-slate-800 mb-2">{label}</div>
+        <div className="bg-white/95 border border-slate-200 shadow-xl rounded-xl px-4 py-3 max-w-sm">
+            <div className="text-sm font-semibold text-slate-800 mb-2 break-all">{label}</div>
             {payload.map((entry) => (
                 <div key={entry.dataKey} className="flex items-center gap-3 text-sm text-slate-600">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
                     <span>{entry.name}</span>
-                    <span className="font-mono font-semibold text-slate-800">{entry.value?.toLocaleString?.() ?? entry.value}</span>
+                    <span className="font-mono font-semibold text-slate-800">{entry.dataKey === 'cost' ? formatCost(entry.value) : formatInteger(entry.value)}</span>
                 </div>
             ))}
         </div>
@@ -67,19 +78,41 @@ const UsageTooltip = ({ active, payload, label }) => {
 };
 
 const getWindow = (value) => WINDOW_SECONDS[value] ? value : '24h';
+const getValidatedTimestamp = (value) => {
+    if (value === null || value === '') {
+        return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
 
 const CostTokenAnalysis = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const [analysisEndTs, setAnalysisEndTs] = useState(() => Math.floor(Date.now() / 1000));
+    const [customStart, setCustomStart] = useState(() => toDateTimeInput(searchParams.get('start_ts')));
+    const [customEnd, setCustomEnd] = useState(() => toDateTimeInput(searchParams.get('end_ts')));
+    const [filterOptions, setFilterOptions] = useState({ groups: [], models: [], tokens: [] });
     const { channels } = useChannels();
 
+    const customStartTs = getValidatedTimestamp(searchParams.get('start_ts'));
+    const customEndTs = getValidatedTimestamp(searchParams.get('end_ts'));
+    const hasCustomRange = customStartTs !== null && customEndTs !== null && customStartTs <= customEndTs;
     const windowValue = getWindow(searchParams.get('window'));
     const metric = METRIC_OPTIONS.some((option) => option.value === searchParams.get('metric')) ? searchParams.get('metric') : 'cost';
     const dimension = DIMENSION_OPTIONS.some((option) => option.value === searchParams.get('dimension')) ? searchParams.get('dimension') : 'model';
 
+    useEffect(() => {
+        setCustomStart(toDateTimeInput(searchParams.get('start_ts')));
+        setCustomEnd(toDateTimeInput(searchParams.get('end_ts')));
+    }, [searchParams]);
+
+    const timeFilters = useMemo(() => ({
+        start_ts: hasCustomRange ? customStartTs : analysisEndTs - WINDOW_SECONDS[windowValue],
+        end_ts: hasCustomRange ? customEndTs : analysisEndTs
+    }), [analysisEndTs, customEndTs, customStartTs, hasCustomRange, windowValue]);
+
     const filters = useMemo(() => ({
-        start_ts: analysisEndTs - WINDOW_SECONDS[windowValue],
-        end_ts: analysisEndTs,
+        ...timeFilters,
         group: searchParams.get('group') || '',
         channel_id: searchParams.get('channel_id') || '',
         model_name: searchParams.get('model_name') || '',
@@ -87,13 +120,35 @@ const CostTokenAnalysis = () => {
         metric,
         dimension,
         limit: 20
-    }), [analysisEndTs, dimension, metric, searchParams, windowValue]);
+    }), [dimension, metric, searchParams, timeFilters]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetchUsageFilterOptions({ ...timeFilters, limit: 200 })
+            .then((result) => {
+                if (!cancelled) {
+                    setFilterOptions({
+                        groups: Array.isArray(result.groups) ? result.groups : [],
+                        models: Array.isArray(result.models) ? result.models : [],
+                        tokens: Array.isArray(result.tokens) ? result.tokens : []
+                    });
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    console.error('Failed to load usage filter options:', error);
+                    setFilterOptions({ groups: [], models: [], tokens: [] });
+                }
+            });
+        return () => { cancelled = true; };
+    }, [timeFilters]);
 
     const { summary, breakdown, timeseries, loading, error } = useUsageAnalysis(filters);
 
     const trendData = timeseries.map((row) => ({
         name: new Date(row.hour * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit' }),
         cost: row.cost,
+        quota: row.quota,
         tokens: row.tokens,
         requests: row.requests
     }));
@@ -101,19 +156,45 @@ const CostTokenAnalysis = () => {
     const barData = breakdown.slice(0, 10).map((row) => ({
         name: row.label,
         cost: row.cost,
+        quota: row.quota,
         tokens: row.tokens,
         requests: row.requests
     }));
 
     const setFilter = (updates) => {
-        setAnalysisEndTs(Math.floor(Date.now() / 1000));
-        updateUrlSearchParams(setSearchParams, updates);
+        const nextUpdates = { ...updates };
+        if ('window' in updates) {
+            nextUpdates.start_ts = '';
+            nextUpdates.end_ts = '';
+        }
+        if (!hasCustomRange) {
+            setAnalysisEndTs(Math.floor(Date.now() / 1000));
+        }
+        updateUrlSearchParams(setSearchParams, nextUpdates);
     };
+
+    const handleTimeRangeChange = (value) => {
+        if (value === 'custom') {
+            return;
+        }
+        setFilter({ window: value });
+    };
+
+    const applyCustomRange = () => {
+        const startTs = fromDateTimeInput(customStart);
+        const endTs = fromDateTimeInput(customEnd);
+        if (startTs === null || endTs === null || startTs > endTs) {
+            return;
+        }
+        updateUrlSearchParams(setSearchParams, { start_ts: startTs, end_ts: endTs, window: '' });
+    };
+
     const clearFilters = () => {
         setAnalysisEndTs(Math.floor(Date.now() / 1000));
         setSearchParams({}, { replace: true });
     };
-    const hasFilters = Boolean(filters.group || filters.channel_id || filters.model_name || filters.token_id || metric !== 'cost' || dimension !== 'model' || windowValue !== '24h');
+
+    const hasFilters = Boolean(filters.group || filters.channel_id || filters.model_name || filters.token_id || metric !== 'cost' || dimension !== 'model' || windowValue !== '24h' || hasCustomRange);
 
     return (
         <div className="space-y-6">
@@ -124,9 +205,9 @@ const CostTokenAnalysis = () => {
                 description="按分组、渠道、模型、Token 和时间窗口查看成本与 Token 消耗"
                 actions={
                     <TimeRangeTabs
-                        value={windowValue}
-                        onChange={(value) => setFilter({ window: value })}
-                        options={TIME_OPTIONS}
+                        value={hasCustomRange ? 'custom' : windowValue}
+                        onChange={handleTimeRangeChange}
+                        options={[...TIME_OPTIONS, { value: 'custom', label: '自定义' }]}
                         activeClassName="bg-gradient-to-r from-emerald-500 to-cyan-600 text-white shadow-md shadow-emerald-500/20"
                     />
                 }
@@ -134,37 +215,34 @@ const CostTokenAnalysis = () => {
 
             <FilterBar
                 icon={Filter}
+                contentClassName="flex flex-wrap gap-3 items-center"
                 action={
                     <button
                         type="button"
                         onClick={clearFilters}
                         disabled={!hasFilters}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border text-slate-600 hover:bg-slate-50 disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
                     >
                         <RotateCcw size={16} />
                         清空
                     </button>
                 }
             >
-                <div className="flex items-center gap-2 px-3 py-1 rounded-lg border bg-white">
-                    <span className="text-sm text-slate-500">分组</span>
-                    <input value={filters.group} onChange={(event) => setFilter({ group: event.target.value })} placeholder="全部" className="text-sm outline-none w-28" />
-                </div>
+                <FilterSelect label="分组" value={filters.group} onChange={(value) => setFilter({ group: value })} options={filterOptions.groups} allLabel="全部分组" />
                 <ChannelSelect channels={channels} value={filters.channel_id} onChange={(value) => setFilter({ channel_id: value })} />
-                <div className="flex items-center gap-2 px-3 py-1 rounded-lg border bg-white">
-                    <span className="text-sm text-slate-500">模型</span>
-                    <input value={filters.model_name} onChange={(event) => setFilter({ model_name: event.target.value })} placeholder="全部" className="text-sm outline-none w-36" />
+                <FilterSelect label="模型" value={filters.model_name} onChange={(value) => setFilter({ model_name: value })} options={filterOptions.models} allLabel="全部模型" selectClassName="max-w-72" />
+                <FilterSelect label="Token" value={filters.token_id} onChange={(value) => setFilter({ token_id: value })} options={filterOptions.tokens} allLabel="全部 Token" selectClassName="max-w-72" />
+                <FilterSelect label="指标" value={metric} onChange={(value) => setFilter({ metric: value })} options={METRIC_OPTIONS} />
+                <FilterSelect label="维度" value={dimension} onChange={(value) => setFilter({ dimension: value })} options={DIMENSION_OPTIONS.map((option) => ({ ...option, label: `按${option.label}` }))} />
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white">
+                    <Clock size={16} className="text-slate-400" />
+                    <CustomDateTimePicker label="开始时间" value={customStart} onChange={setCustomStart} />
+                    <span className="text-slate-300">→</span>
+                    <CustomDateTimePicker label="结束时间" value={customEnd} onChange={setCustomEnd} />
+                    <button type="button" onClick={applyCustomRange} className="px-2 py-1 rounded-md text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40">
+                        应用
+                    </button>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-1 rounded-lg border bg-white">
-                    <span className="text-sm text-slate-500">Token ID</span>
-                    <input value={filters.token_id} onChange={(event) => setFilter({ token_id: event.target.value })} placeholder="全部" className="text-sm outline-none w-24" />
-                </div>
-                <select value={metric} onChange={(event) => setFilter({ metric: event.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm text-slate-700">
-                    {METRIC_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-                <select value={dimension} onChange={(event) => setFilter({ dimension: event.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm text-slate-700">
-                    {DIMENSION_OPTIONS.map((option) => <option key={option.value} value={option.value}>按{option.label}</option>)}
-                </select>
             </FilterBar>
 
             {loading && !summary ? (
@@ -173,11 +251,13 @@ const CostTokenAnalysis = () => {
                 <EmptyState title="加载失败" description={error.message} className="bg-white rounded-xl border" />
             ) : (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                        <StatCard icon={DollarSign} iconWrapperClassName="bg-emerald-100" iconClassName="text-emerald-600" value={formatCost(summary?.cost)} label="总成本" valueClassName="text-emerald-600" />
-                        <StatCard icon={Coins} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatCompact(summary?.tokens)} label="总 Token" valueClassName="text-violet-600" />
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+                        <StatCard icon={DollarSign} iconWrapperClassName="bg-emerald-100" iconClassName="text-emerald-600" value={formatCost(summary?.cost)} label="计费成本" valueClassName="text-emerald-600" />
+                        <StatCard icon={Database} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={formatCompact(summary?.quota)} label="计费 Quota" />
+                        <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={formatCompact(summary?.prompt_tokens)} label="输入 Token" valueClassName="text-blue-600" />
+                        <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatCompact(summary?.completion_tokens)} label="输出 Token" valueClassName="text-violet-600" />
+                        <StatCard icon={Coins} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={formatCompact(summary?.cache_hit_tokens)} label="缓存命中 Token" valueClassName="text-amber-600" />
                         <StatCard icon={TrendingUp} iconWrapperClassName="bg-cyan-100" iconClassName="text-cyan-600" value={formatCompact(summary?.requests)} label="请求数" valueClassName="text-cyan-600" />
-                        <StatCard icon={Server} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={`${summary?.active_channels || 0}/${summary?.active_models || 0}`} label="活跃渠道 / 模型" />
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
@@ -198,10 +278,10 @@ const CostTokenAnalysis = () => {
                         <PanelCard title={`Top ${metricLabel(metric)} 分布`} className="xl:col-span-2" bodyClassName="p-6">
                             <div className="h-[340px]">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={barData} layout="vertical" margin={{ left: 24, right: 12 }}>
+                                    <BarChart data={barData} layout="vertical" margin={{ left: 12, right: 12 }}>
                                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
                                         <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                                        <YAxis dataKey="name" type="category" width={90} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                        <YAxis dataKey="name" type="category" width={170} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                                         <Tooltip content={<UsageTooltip />} />
                                         <Bar dataKey={metric} name={metricLabel(metric)} fill="#06b6d4" radius={[0, 6, 6, 0]} />
                                     </BarChart>
@@ -217,26 +297,32 @@ const CostTokenAnalysis = () => {
                                     <tr>
                                         <th className="px-4 py-3 text-left font-semibold text-slate-600">名称</th>
                                         <th className="px-4 py-3 text-right font-semibold text-slate-600">成本</th>
-                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">Token</th>
-                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">请求</th>
                                         <th className="px-4 py-3 text-right font-semibold text-slate-600">Quota</th>
+                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">输入</th>
+                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">输出</th>
+                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">缓存命中</th>
+                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">总 Token</th>
+                                        <th className="px-4 py-3 text-right font-semibold text-slate-600">请求</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
                                     {breakdown.length ? breakdown.map((row) => (
                                         <tr key={row.key} className="hover:bg-slate-50">
-                                            <td className="px-4 py-3">
-                                                <div className="font-medium text-slate-800">{row.label}</div>
-                                                <div className="text-xs text-slate-400">{row.key || 'default'}</div>
+                                            <td className="px-4 py-3 max-w-[360px]">
+                                                <div className="font-medium text-slate-800 whitespace-normal break-all" title={row.label}>{row.label}</div>
+                                                <div className="text-xs text-slate-400 break-all">{row.key || 'default'}</div>
                                             </td>
                                             <td className="px-4 py-3 text-right font-mono">{formatCost(row.cost)}</td>
+                                            <td className="px-4 py-3 text-right font-mono">{formatCompact(row.quota)}</td>
+                                            <td className="px-4 py-3 text-right font-mono">{formatCompact(row.prompt_tokens)}</td>
+                                            <td className="px-4 py-3 text-right font-mono">{formatCompact(row.completion_tokens)}</td>
+                                            <td className="px-4 py-3 text-right font-mono">{formatCompact(row.cache_hit_tokens)}</td>
                                             <td className="px-4 py-3 text-right font-mono">{formatCompact(row.tokens)}</td>
                                             <td className="px-4 py-3 text-right font-mono">{formatCompact(row.requests)}</td>
-                                            <td className="px-4 py-3 text-right font-mono">{formatMetric('quota', row.quota)}</td>
                                         </tr>
                                     )) : (
                                         <tr>
-                                            <td colSpan={5}><EmptyState icon={Hash} title="暂无用量数据" /></td>
+                                            <td colSpan={8}><EmptyState icon={Hash} title="暂无用量数据" /></td>
                                         </tr>
                                     )}
                                 </tbody>

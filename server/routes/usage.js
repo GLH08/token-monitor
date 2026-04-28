@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
-const { parseUsageFilters, sendValidationError } = require('../request');
+const { parseUsageFilters, parseTimeRange, parsePositiveInt, sendValidationError } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 const MAX_TIMESERIES_RANGE_SECONDS = 31 * 24 * 3600;
@@ -45,12 +45,23 @@ function buildUsageWhere(filters) {
     return { where, params };
 }
 
+function buildHourlyBuckets(startTs, endTs) {
+    const startHour = Math.floor(startTs / 3600) * 3600;
+    const endHour = Math.floor(endTs / 3600) * 3600;
+    const buckets = [];
+    for (let hour = startHour; hour <= endHour; hour += 3600) {
+        buckets.push(hour);
+    }
+    return buckets;
+}
+
 function mapTotals(row = {}) {
     const quota = row.quota || 0;
     return {
         tokens: row.tokens || 0,
         prompt_tokens: row.prompt_tokens || 0,
         completion_tokens: row.completion_tokens || 0,
+        cache_hit_tokens: row.cache_hit_tokens || 0,
         requests: row.requests || 0,
         quota,
         cost: quota / QUOTA_PER_UNIT,
@@ -63,6 +74,7 @@ function zeroTotals() {
         tokens: 0,
         prompt_tokens: 0,
         completion_tokens: 0,
+        cache_hit_tokens: 0,
         requests: 0,
         quota: 0,
         cost: 0,
@@ -125,15 +137,99 @@ function mapBreakdownRows(rows) {
     });
 }
 
-function buildHourlyBuckets(startTs, endTs) {
-    const startHour = Math.floor(startTs / 3600) * 3600;
-    const endHour = Math.floor(endTs / 3600) * 3600;
-    const buckets = [];
-    for (let hour = startHour; hour <= endHour; hour += 3600) {
-        buckets.push(hour);
-    }
-    return buckets;
+function mapOptionRow(row) {
+    const totals = mapTotals(row);
+    return {
+        value: String(row.value ?? ''),
+        label: String(row.label ?? row.value ?? ''),
+        ...totals
+    };
 }
+
+async function getUsageFilterOptions(query) {
+    const now = Math.floor(Date.now() / 1000);
+    const timeRange = parseTimeRange(query, { startTs: now - 30 * 24 * 3600, endTs: now });
+    const limit = parsePositiveInt(query.limit, { defaultValue: 200, min: 1, max: 500 });
+    if (!timeRange || limit === null) {
+        return null;
+    }
+
+    const params = [timeRange.startTs, timeRange.endTs, limit];
+    const totalsSql = `
+        SUM(prompt_tokens) as prompt_tokens,
+        SUM(completion_tokens) as completion_tokens,
+        SUM(cache_hit_tokens) as cache_hit_tokens,
+        SUM(tokens) as tokens,
+        SUM(request_count) as requests,
+        SUM(quota) as quota,
+        SUM(error_count) as errors
+    `;
+
+    const [groupRows, modelRows, tokenRows] = await Promise.all([
+        db.allAsync(
+            `SELECT user_group as value, user_group as label, ${totalsSql}
+             FROM usage_stats
+             WHERE hour >= ? AND hour <= ? AND user_group != ''
+             GROUP BY user_group
+             ORDER BY SUM(request_count) DESC
+             LIMIT ?`,
+            params
+        ),
+        db.allAsync(
+            `SELECT model_name as value, model_name as label, ${totalsSql}
+             FROM usage_stats
+             WHERE hour >= ? AND hour <= ? AND model_name != ''
+             GROUP BY model_name
+             ORDER BY SUM(request_count) DESC
+             LIMIT ?`,
+            params
+        ),
+        db.allAsync(
+            `SELECT token_id as value, token_id as label, ${totalsSql}
+             FROM usage_stats
+             WHERE hour >= ? AND hour <= ? AND token_id > 0
+             GROUP BY token_id
+             ORDER BY SUM(request_count) DESC
+             LIMIT ?`,
+            params
+        )
+    ]);
+
+    const tokenIds = tokenRows.map((row) => Number(row.value)).filter((id) => id > 0);
+    const tokens = tokenIds.length ? await prisma.token.findMany({
+        where: { id: { in: tokenIds } },
+        select: { id: true, name: true, status: true, group: true }
+    }) : [];
+    const tokenMap = Object.fromEntries(tokens.map((token) => [token.id, token]));
+
+    return {
+        groups: groupRows.map(mapOptionRow),
+        models: modelRows.map(mapOptionRow),
+        tokens: tokenRows.map((row) => {
+            const id = Number(row.value);
+            const token = tokenMap[id];
+            return {
+                ...mapOptionRow({ ...row, label: token?.name ? `${token.name} (#${id})` : `Token #${id}` }),
+                id,
+                name: token?.name || '',
+                group: token?.group || '',
+                status: token?.status
+            };
+        })
+    };
+}
+
+router.get('/filter-options', async (req, res) => {
+    try {
+        const options = await getUsageFilterOptions(req.query);
+        if (!options) {
+            return sendValidationError(res);
+        }
+        res.json(options);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 router.get('/summary', async (req, res) => {
     const filters = parseUsageFilters(req.query);
@@ -148,6 +244,7 @@ router.get('/summary', async (req, res) => {
             `SELECT
                 SUM(prompt_tokens) as prompt_tokens,
                 SUM(completion_tokens) as completion_tokens,
+                SUM(cache_hit_tokens) as cache_hit_tokens,
                 SUM(tokens) as tokens,
                 SUM(request_count) as requests,
                 SUM(quota) as quota,
@@ -188,6 +285,7 @@ router.get('/breakdown', async (req, res) => {
                 ${dimensionColumn} as key,
                 SUM(prompt_tokens) as prompt_tokens,
                 SUM(completion_tokens) as completion_tokens,
+                SUM(cache_hit_tokens) as cache_hit_tokens,
                 SUM(tokens) as tokens,
                 SUM(request_count) as requests,
                 SUM(quota) as quota,
@@ -239,6 +337,7 @@ router.get('/timeseries', async (req, res) => {
                 ${splitColumn ? `${splitColumn} as split_key,` : "'' as split_key,"}
                 SUM(prompt_tokens) as prompt_tokens,
                 SUM(completion_tokens) as completion_tokens,
+                SUM(cache_hit_tokens) as cache_hit_tokens,
                 SUM(tokens) as tokens,
                 SUM(request_count) as requests,
                 SUM(quota) as quota,

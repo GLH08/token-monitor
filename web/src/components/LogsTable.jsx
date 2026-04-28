@@ -1,9 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { fetchLogs } from '../api';
+import { fetchAvailableModels, fetchLogs } from '../api';
 import { usePaginatedData } from '../hooks/usePaginatedData';
 import { Search, Calendar, Filter, FileJson, Eye, DollarSign, X } from 'lucide-react';
-import { EmptyState, FilterBar, PaginationBar, PanelCard, StatCard } from './PageUI';
+import { ChannelSelect, EmptyState, FilterBar, FilterSelect, PaginationBar, PanelCard, StatCard } from './PageUI';
+import { useChannels } from '../hooks/useChannels';
 import CustomDateTimePicker from './CustomDateTimePicker';
+const formatInteger = (value) => Math.round(value || 0).toLocaleString();
+const formatCost = (value) => `$${(value || 0).toFixed(6)}`;
+const toModelOptions = (result) => {
+    const models = Array.isArray(result?.data) ? result.data : [];
+    return models.map((model) => ({
+        value: model.model_name,
+        label: model.is_active ? `${model.model_name} (${model.request_count_24h || 0})` : model.model_name
+    }));
+};
 
 
 const LogDetailsDrawer = ({ log, onClose }) => {
@@ -57,25 +67,48 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                             <p className="text-xs text-slate-500 font-medium mb-1">渠道 ID</p>
                             <p className="text-sm font-mono text-slate-700">#{log.channelId}</p>
                         </div>
+                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                            <p className="text-xs text-slate-500 font-medium mb-1">Token</p>
+                            <p className="text-sm font-medium text-slate-700 break-all">{log.tokenName || '-'}</p>
+                            <p className="text-xs font-mono text-slate-400">#{log.tokenId || '-'}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                            <p className="text-xs text-slate-500 font-medium mb-1">分组</p>
+                            <p className="text-sm font-medium text-slate-700 break-all">{log.group || '-'}</p>
+                        </div>
                     </div>
 
                     {/* Token Usage */}
                     <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
                         <h3 className="text-sm font-bold text-slate-700 mb-3">Token 消耗</h3>
-                        <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-4 text-sm flex-wrap">
                             <div>
                                 <span className="text-slate-500 text-xs">Prompt:</span>
-                                <span className="ml-2 font-mono font-medium">{log.promptTokens}</span>
+                                <span className="ml-2 font-mono font-medium">{formatInteger(log.inputTokens ?? log.promptTokens)}</span>
                             </div>
                             <div className="w-px h-4 bg-slate-200"></div>
                             <div>
                                 <span className="text-slate-500 text-xs">Completion:</span>
-                                <span className="ml-2 font-mono font-medium">{log.completionTokens}</span>
+                                <span className="ml-2 font-mono font-medium">{formatInteger(log.outputTokens ?? log.completionTokens)}</span>
+                            </div>
+                            <div className="w-px h-4 bg-slate-200"></div>
+                            <div>
+                                <span className="text-slate-500 text-xs">Cache Hit:</span>
+                                <span className="ml-2 font-mono font-medium text-amber-600">{formatInteger(log.cacheHitTokens)}</span>
                             </div>
                             <div className="w-px h-4 bg-slate-200"></div>
                             <div>
                                 <span className="text-slate-500 text-xs">Total:</span>
-                                <span className="ml-2 font-mono font-bold text-cyan-600">{log.promptTokens + log.completionTokens}</span>
+                                <span className="ml-2 font-mono font-bold text-cyan-600">{formatInteger(log.totalTokens ?? ((log.promptTokens || 0) + (log.completionTokens || 0)))}</span>
+                            </div>
+                            <div className="w-px h-4 bg-slate-200"></div>
+                            <div>
+                                <span className="text-slate-500 text-xs">Quota:</span>
+                                <span className="ml-2 font-mono font-medium">{formatInteger(log.billingQuota ?? log.quota)}</span>
+                            </div>
+                            <div>
+                                <span className="text-slate-500 text-xs">Cost:</span>
+                                <span className="ml-2 font-mono font-bold text-emerald-600">{formatCost(log.cost ?? ((log.quota || 0) / 500000))}</span>
                             </div>
                         </div>
                     </div>
@@ -94,7 +127,7 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                                         try {
                                             const content = typeof log.content === 'string' ? JSON.parse(log.content) : log.content;
                                             return JSON.stringify(content, null, 2);
-                                        } catch (e) {
+                                        } catch {
                                             return log.content;
                                         }
                                     }
@@ -106,11 +139,12 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                                         available_info: {
                                             model: log.modelName,
                                             channel_id: log.channelId,
-                                            prompt_tokens: log.promptTokens,
-                                            completion_tokens: log.completionTokens,
-                                            total_tokens: log.promptTokens + log.completionTokens,
-                                            duration_seconds: log.useTime,
-                                            cost: (log.quota / 500000).toFixed(6) + ' USD',
+                                            input_tokens: log.inputTokens ?? log.promptTokens,
+                                            output_tokens: log.outputTokens ?? log.completionTokens,
+                                            total_tokens: log.totalTokens ?? ((log.promptTokens || 0) + (log.completionTokens || 0)),
+                                            cache_hit_tokens: log.cacheHitTokens || 0,
+                                            quota: log.billingQuota ?? log.quota,
+                                            cost: formatCost(log.cost ?? ((log.quota || 0) / 500000)),
                                             timestamp: new Date(parseInt(log.createdAt) * 1000).toISOString()
                                         }
                                     };
@@ -128,6 +162,8 @@ const LogDetailsDrawer = ({ log, onClose }) => {
 const LogsTable = () => {
     const [dateInputs, setDateInputs] = useState({ start: '', end: '' });
     const [selectedLog, setSelectedLog] = useState(null);
+    const [modelOptions, setModelOptions] = useState([]);
+    const { channels } = useChannels();
 
     const {
         data: logs,
@@ -146,6 +182,23 @@ const LogsTable = () => {
         start_ts: '',
         end_ts: ''
     }, { pageSize: 20, cacheKey: 'logs_cache' });
+
+    useEffect(() => {
+        let cancelled = false;
+        fetchAvailableModels()
+            .then((result) => {
+                if (!cancelled) {
+                    setModelOptions(toModelOptions(result));
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    console.error('Load model options error:', error);
+                    setModelOptions([]);
+                }
+            });
+        return () => { cancelled = true; };
+    }, []);
 
     const safeStats = stats || { total_tokens: 0, total_cost: 0 };
 
@@ -193,18 +246,8 @@ const LogsTable = () => {
                     <h3 className="text-lg font-bold text-slate-800">请求日志</h3>
                 </div>
                 <form onSubmit={handleSearch} className="flex flex-wrap gap-3 w-full xl:w-auto">
-                    <input
-                        placeholder="渠道 ID"
-                        className="border-2 border-slate-200 px-4 py-2.5 rounded-xl text-sm w-full sm:w-32 focus:outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 transition-all bg-slate-50 focus:bg-white"
-                        value={filters.channel_id}
-                        onChange={e => setFilters({ ...filters, channel_id: e.target.value })}
-                    />
-                    <input
-                        placeholder="模型名称"
-                        className="border-2 border-slate-200 px-4 py-2.5 rounded-xl text-sm w-full sm:w-40 focus:outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 transition-all bg-slate-50 focus:bg-white"
-                        value={filters.model_name}
-                        onChange={e => setFilters({ ...filters, model_name: e.target.value })}
-                    />
+                    <ChannelSelect channels={channels} value={filters.channel_id} onChange={value => setFilters({ ...filters, channel_id: value })} />
+                    <FilterSelect label="模型" value={filters.model_name} onChange={value => setFilters({ ...filters, model_name: value })} options={modelOptions} allLabel="全部模型" selectClassName="max-w-72" />
                     <div className="flex items-center gap-1 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors group focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white">
                         <Calendar size={18} className="text-slate-400 group-hover:text-cyan-500 transition-colors mr-2" />
                         <CustomDateTimePicker
@@ -246,47 +289,65 @@ const LogsTable = () => {
                             ) : logs.length === 0 ? (
                                 <tr><td colSpan="8"><EmptyState title="暂无日志" /></td></tr>
                             ) : (
-                                logs.map(log => (
-                                    <tr
-                                        key={log.id}
-                                        className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
-                                        onClick={() => setSelectedLog(log)}
-                                    >
-                                        <td className="px-6 py-4 font-mono text-slate-400 text-xs">#{log.id}</td>
-                                        <td className="px-6 py-4 text-slate-600">
-                                            {new Date(parseInt(log.createdAt) * 1000).toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md text-xs font-medium border border-slate-200 group-hover:border-cyan-200 group-hover:bg-cyan-50 group-hover:text-cyan-700 transition-colors">
-                                                {log.channelId}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 font-medium text-slate-700">
-                                            <span className="bg-slate-50 px-2 py-1 rounded text-slate-600 border border-slate-100">{log.modelName}</span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className={`font-mono font-medium ${log.useTime > 2 ? 'text-amber-500' : 'text-slate-600'}`}>
-                                                {log.useTime} s
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex flex-col items-end gap-0.5">
-                                                <span className="font-mono font-bold text-cyan-600">
-                                                    {(log.promptTokens + log.completionTokens).toLocaleString()}
+                                logs.map(log => {
+                                    const inputTokens = log.inputTokens ?? log.promptTokens ?? 0;
+                                    const outputTokens = log.outputTokens ?? log.completionTokens ?? 0;
+                                    const totalTokens = log.totalTokens ?? (inputTokens + outputTokens);
+                                    return (
+                                        <tr
+                                            key={log.id}
+                                            className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
+                                            onClick={() => setSelectedLog(log)}
+                                        >
+                                            <td className="px-6 py-4 font-mono text-slate-400 text-xs">#{log.id}</td>
+                                            <td className="px-6 py-4 text-slate-600">
+                                                {new Date(parseInt(log.createdAt) * 1000).toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md text-xs font-medium border border-slate-200 group-hover:border-cyan-200 group-hover:bg-cyan-50 group-hover:text-cyan-700 transition-colors">
+                                                    {log.channelId}
                                                 </span>
-                                                <span className="text-xs text-slate-400 font-mono">
-                                                    {log.promptTokens.toLocaleString()}↑ / {log.completionTokens.toLocaleString()}↓
+                                            </td>
+                                            <td className="px-6 py-4 font-medium text-slate-700 max-w-[320px]">
+                                                <div className="bg-slate-50 px-2 py-1 rounded text-slate-600 border border-slate-100 whitespace-normal break-all" title={log.modelName}>{log.modelName}</div>
+                                                {(log.tokenName || log.tokenId || log.group) ? (
+                                                    <div className="mt-1 text-xs text-slate-400 break-all">
+                                                        {log.tokenName || (log.tokenId ? `Token #${log.tokenId}` : '')}{log.group ? ` · ${log.group}` : ''}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <span className={`font-mono font-medium ${log.useTime > 2 ? 'text-amber-500' : 'text-slate-600'}`}>
+                                                    {log.useTime} s
                                                 </span>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-medium text-emerald-600 bg-emerald-50/30">${(log.quota / 500000).toFixed(6)}</td>
-                                        <td className="px-6 py-4 text-center">
-                                            <button className="p-1.5 hover:bg-cyan-50 text-slate-400 hover:text-cyan-600 rounded-lg transition-colors">
-                                                <Eye size={16} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex flex-col items-end gap-0.5">
+                                                    <span className="font-mono font-bold text-cyan-600">
+                                                        {formatInteger(totalTokens)}
+                                                    </span>
+                                                    <span className="text-xs text-slate-400 font-mono">
+                                                        {formatInteger(inputTokens)}↑ / {formatInteger(outputTokens)}↓
+                                                    </span>
+                                                    {log.cacheHitTokens ? (
+                                                        <span className="text-xs text-amber-600 font-mono">
+                                                            cache {formatInteger(log.cacheHitTokens)}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-medium text-emerald-600 bg-emerald-50/30">
+                                                <div>{formatCost(log.cost ?? ((log.quota || 0) / 500000))}</div>
+                                                <div className="text-xs font-mono text-slate-400">Quota {formatInteger(log.billingQuota ?? log.quota)}</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <button type="button" className="p-1.5 hover:bg-cyan-50 text-slate-400 hover:text-cyan-600 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40">
+                                                    <Eye size={16} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
