@@ -117,7 +117,7 @@ export const StatCard = ({ icon: Icon, iconWrapperClassName = 'bg-slate-100', ic
             </div>
             <div>
                 <div className={`text-3xl font-bold ${valueClassName}`}>{value}</div>
-                <div className="text-slate-500 text-sm">{label}</div>
+                <div className="text-slate-500 text-sm whitespace-nowrap">{label}</div>
             </div>
         </div>
     </div>
@@ -226,12 +226,14 @@ export const FilterSelect = ({
     );
 };
 
-export const ChannelSelect = ({ channels, value, onChange, className = 'bg-white' }) => (
+export const ChannelSelect = ({ channels, value, onChange, className = 'bg-white', selectClassName = '', wrapperClassName = '' }) => (
     <FilterSelect
         label="渠道范围"
         value={value}
         onChange={onChange}
         className={className}
+        selectClassName={selectClassName}
+        wrapperClassName={wrapperClassName}
         allLabel="全部渠道"
         options={channels.map((channel) => ({ value: channel.id, label: channel.name }))}
     />
