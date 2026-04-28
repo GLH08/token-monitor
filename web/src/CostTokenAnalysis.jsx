@@ -233,14 +233,16 @@ const CostTokenAnalysis = () => {
                     <FilterSelect label="指标" value={metric} onChange={(value) => setFilter({ metric: value })} options={METRIC_OPTIONS} />
                     <FilterSelect label="维度" value={dimension} onChange={(value) => setFilter({ dimension: value })} options={DIMENSION_OPTIONS.map((option) => ({ ...option, label: `按${option.label}` }))} />
                 </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white w-fit">
-                    <Clock size={16} className="text-slate-400" />
-                    <CustomDateTimePicker label="开始时间" value={customStart} onChange={setCustomStart} />
-                    <span className="text-slate-300">→</span>
-                    <CustomDateTimePicker label="结束时间" value={customEnd} onChange={setCustomEnd} />
-                    <button type="button" onClick={applyCustomRange} className="px-2 py-1 rounded-md text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40">
-                        应用
-                    </button>
+                <div className="flex flex-wrap gap-3 items-center justify-between">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white">
+                        <Clock size={16} className="text-slate-400" />
+                        <CustomDateTimePicker label="开始时间" value={customStart} onChange={setCustomStart} />
+                        <span className="text-slate-300">→</span>
+                        <CustomDateTimePicker label="结束时间" value={customEnd} onChange={setCustomEnd} />
+                        <button type="button" onClick={applyCustomRange} className="px-2 py-1 rounded-md text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40">
+                            应用
+                        </button>
+                    </div>
                 </div>
             </FilterBar>
 
