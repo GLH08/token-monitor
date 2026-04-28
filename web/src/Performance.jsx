@@ -10,7 +10,7 @@ const formatCompactNumber = (value) => new Intl.NumberFormat('en-US', {
     maximumFractionDigits: value >= 1000000 ? 1 : 0,
 }).format(value || 0);
 
-const formatLatency = (value) => `${Math.round(value || 0)} ms`;
+const formatLatency = (value) => `${Math.round(value || 0)} s`;
 
 const getSummaryValue = (value, isUnavailable = false) => (isUnavailable ? '—' : value);
 
@@ -65,7 +65,7 @@ const chartConfig = {
         gradientId: 'colorLatency',
         label: 'Latency',
         dataKey: 'avg_latency',
-        unit: ' ms',
+        unit: ' s',
     },
 };
 
@@ -267,7 +267,7 @@ const Performance = () => {
                     <PanelCard title={chartConfig.avg_latency.title} description={chartConfig.avg_latency.description} bodyClassName="p-6">
                         <div className="mb-4 flex items-center gap-2 text-sm text-slate-500">
                             <Clock size={16} className="text-slate-400" />
-                            <span>{summary.maxLatency ? `当前窗口最高慢请求 ${summary.maxLatency.toLocaleString()} ms` : '当前窗口暂无慢请求峰值'}</span>
+                            <span>{summary.maxLatency ? `当前窗口最高慢请求 ${summary.maxLatency.toLocaleString()} s` : '当前窗口暂无慢请求峰值'}</span>
                         </div>
                         <div className="h-[250px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
@@ -280,7 +280,7 @@ const Performance = () => {
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} minTickGap={30} />
-                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} unit=" ms" />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} unit=" s" />
                                     <Tooltip content={<CustomTooltip />} />
                                     <Area type="monotone" dataKey="avg_latency" name="Latency" stroke={chartConfig.avg_latency.stroke} strokeWidth={3} fillOpacity={1} fill={`url(#${chartConfig.avg_latency.gradientId})`} />
                                 </AreaChart>
@@ -296,7 +296,7 @@ const Performance = () => {
                                         <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">时间</th>
                                         <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">模型</th>
                                         <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">渠道 ID</th>
-                                        <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">耗时 (ms)</th>
+                                        <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">耗时 (s)</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
@@ -319,8 +319,8 @@ const Performance = () => {
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
-                                                    <span className={`font-mono font-bold ${log.useTime > 5000 ? 'text-red-500' : (log.useTime > 2000 ? 'text-amber-500' : 'text-slate-700')}`}>
-                                                        {log.useTime.toLocaleString()} ms
+                                                    <span className={`font-mono font-bold ${log.useTime > 5 ? 'text-red-500' : (log.useTime > 2 ? 'text-amber-500' : 'text-slate-700')}`}>
+                                                        {log.useTime.toLocaleString()} s
                                                     </span>
                                                 </td>
                                             </tr>

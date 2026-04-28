@@ -1,11 +1,18 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db');
 const { prisma } = require('../syncer');
 const { parseTimeRange, parseOptionalId, sendValidationError } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
 router.get('/overview', async (req, res) => {
+    const now = Math.floor(Date.now() / 1000);
+    const timeRange = parseTimeRange(req.query, { startTs: now - 24 * 3600, endTs: now });
+    if (!timeRange) {
+        return sendValidationError(res);
+    }
+
     try {
         const tokens = await prisma.token.findMany({
             where: { deletedAt: null },
@@ -17,10 +24,20 @@ router.get('/overview', async (req, res) => {
             }
         });
 
-        const now = Math.floor(Date.now() / 1000);
+        const usageRows = await db.allAsync(
+            `SELECT token_id, SUM(request_count) as requests, SUM(tokens) as tokens, SUM(quota) as quota
+             FROM usage_stats
+             WHERE hour >= ? AND hour <= ?
+             GROUP BY token_id`,
+            [timeRange.startTs, timeRange.endTs]
+        );
+        const usageMap = Object.fromEntries(usageRows.map((row) => [row.token_id, row]));
+
         const result = tokens.map(t => {
             const usedQuota = Number(t.usedQuota) || 0;
             const remainQuota = Number(t.remainQuota) || 0;
+            const usage = usageMap[t.id] || {};
+            const recentQuota = usage.quota || 0;
             return {
                 id: t.id,
                 name: t.name,
@@ -31,7 +48,11 @@ router.get('/overview', async (req, res) => {
                 expiredTime: t.expiredTime ? Number(t.expiredTime) : -1,
                 accessedTime: t.accessedTime ? Number(t.accessedTime) : null,
                 group: t.group,
-                usedCount: 0,
+                usedCount: usage.requests || 0,
+                requests: usage.requests || 0,
+                tokens: usage.tokens || 0,
+                quota: recentQuota,
+                cost: recentQuota / QUOTA_PER_UNIT,
                 isExpired: t.expiredTime && t.expiredTime !== BigInt(-1) && Number(t.expiredTime) < now,
                 isExhausted: !t.unlimitedQuota && remainQuota <= 0,
                 usagePercent: t.unlimitedQuota ? null :
@@ -46,7 +67,7 @@ router.get('/overview', async (req, res) => {
             exhausted: result.filter(t => t.isExhausted).length
         };
 
-        res.json({ tokens: result, statusCount, total: result.length });
+        res.json({ tokens: result, statusCount, total: result.length, timeRange });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const http = require('http');
 const WebSocket = require('ws');
-const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma } = require('./syncer');
+const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
@@ -84,6 +84,7 @@ app.get('/api/realtime', (req, res) => {
 });
 
 app.use('/api', require('./routes/stats'));
+app.use('/api/usage', require('./routes/usage'));
 app.use('/api', require('./routes/logs'));
 app.use('/api/channels', require('./routes/channels'));
 app.use('/api/tokens', require('./routes/tokens'));
@@ -160,10 +161,19 @@ function broadcastRealtimeStats() {
 server.listen(PORT, () => {
     console.log(`[SERVER] Running on port ${PORT}`);
 
+    const usageBackfillReady = ensureUsageStatsBackfill()
+        .then((result) => {
+            if (!result.skipped) {
+                console.log(`[SYNC] Backfilled usage_stats with ${result.processedLogs} logs`);
+            }
+        })
+        .catch((error) => console.error('[SYNC] usage_stats backfill error:', error));
+
     // 日志同步 (每5秒) + 延迟监控
     setInterval(async () => {
         const start = Date.now();
         try {
+            await usageBackfillReady;
             const result = await syncLogs();
             syncMetrics.lastSyncTime = new Date().toISOString();
             syncMetrics.lastSyncDuration = Date.now() - start;

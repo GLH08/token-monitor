@@ -19,7 +19,7 @@ const formatTime = (ts) => {
 };
 
 const formatUseTime = (value) => (
-    value === null || value === undefined ? '-' : `${value} ms`
+    value === null || value === undefined ? '-' : `${value} s`
 );
 
 const buildErrorPreview = (log) => {
@@ -100,7 +100,7 @@ const ErrorDetailsDrawer = ({ log, onClose }) => {
                             <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
                                 <TimerReset size={14} /> 耗时
                             </div>
-                            <div className={`font-mono text-sm ${log.use_time > 2000 ? 'text-amber-600' : 'text-slate-700'}`}>
+                            <div className={`font-mono text-sm ${log.use_time > 2 ? 'text-amber-600' : 'text-slate-700'}`}>
                                 {formatUseTime(log.use_time)}
                             </div>
                         </div>
@@ -169,7 +169,7 @@ const Errors = () => {
     const summary = useMemo(() => ({
         total,
         visible: logs.length,
-        slow: logs.filter((log) => (log.use_time || 0) > 2000).length,
+        slow: logs.filter((log) => (log.use_time || 0) > 2).length,
         withContent: logs.filter((log) => Boolean(log.content)).length,
     }), [logs, total]);
 
@@ -309,7 +309,7 @@ const Errors = () => {
                                             </div>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            <span className={`font-mono ${log.use_time > 2000 ? 'text-amber-600' : 'text-slate-600'}`}>
+                                            <span className={`font-mono ${log.use_time > 2 ? 'text-amber-600' : 'text-slate-600'}`}>
                                                 {formatUseTime(log.use_time)}
                                             </span>
                                         </td>

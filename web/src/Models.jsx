@@ -218,7 +218,7 @@ const Models = () => {
                                             {m.errorRate}%
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3 text-right font-mono text-slate-600">{m.avgLatency}ms</td>
+                                    <td className="px-4 py-3 text-right font-mono text-slate-600">{m.avgLatency}s</td>
                                     <td className="px-4 py-3 text-right">
                                         <Link
                                             to={buildStatusLink(m.model_name)}

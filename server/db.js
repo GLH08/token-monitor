@@ -36,6 +36,29 @@ function initDB() {
         db.run(`CREATE INDEX IF NOT EXISTS idx_stats_channel_hour ON stats(channel_id, hour)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_stats_model_hour ON stats(model_name, hour)`);
 
+        // ==================== 用量分析聚合表 ====================
+        db.run(`CREATE TABLE IF NOT EXISTS usage_stats (
+            hour INTEGER,
+            user_group TEXT,
+            channel_id INTEGER,
+            model_name TEXT,
+            token_id INTEGER,
+            prompt_tokens INTEGER DEFAULT 0,
+            completion_tokens INTEGER DEFAULT 0,
+            tokens INTEGER DEFAULT 0,
+            request_count INTEGER DEFAULT 0,
+            quota INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
+            avg_latency INTEGER DEFAULT 0,
+            PRIMARY KEY (hour, user_group, channel_id, model_name, token_id)
+        )`);
+
+        db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_hour ON usage_stats(hour)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_group_hour ON usage_stats(user_group, hour)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_channel_hour ON usage_stats(channel_id, hour)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_model_hour ON usage_stats(model_name, hour)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_usage_stats_token_hour ON usage_stats(token_id, hour)`);
+
         // ==================== 告警规则表 ====================
         db.run(`CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

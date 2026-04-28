@@ -111,9 +111,16 @@ export const fetchModelsLatencyCompare = (filters) => authFetch(withQuery('/mode
 
 
 // ==================== Token 监控 ====================
-export const fetchTokensOverview = () => authFetch('/tokens/overview');
+export const fetchTokensOverview = (filters) => authFetch(withQuery('/tokens/overview', filters));
 
 export const fetchTokenUsage = (tokenId, filters) => authFetch(withQuery(`/tokens/${tokenId}/usage`, filters));
+
+// ==================== 用量分析 ====================
+export const fetchUsageSummary = (filters) => authFetch(withQuery('/usage/summary', filters));
+
+export const fetchUsageBreakdown = (filters) => authFetch(withQuery('/usage/breakdown', filters));
+
+export const fetchUsageTimeseries = (filters) => authFetch(withQuery('/usage/timeseries', filters));
 
 // ==================== 错误日志 ====================
 export const fetchErrorLogs = (params) => authFetch(withQuery('/errors', params));

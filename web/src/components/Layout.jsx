@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Bell, LogOut, Activity, Menu, Server, Cpu, Key, AlertTriangle, HeartPulse, X } from 'lucide-react';
+import { LayoutDashboard, FileText, Bell, LogOut, Activity, Menu, Server, Cpu, Key, AlertTriangle, HeartPulse, BarChart3, X } from 'lucide-react';
 
 const Layout = ({ children, onLogout }) => {
     const location = useLocation();
@@ -20,6 +20,7 @@ const Layout = ({ children, onLogout }) => {
             items: [
                 { path: '/', label: '概览', icon: LayoutDashboard },
                 { path: '/performance', label: '性能分析', icon: Activity },
+                { path: '/usage', label: '用量分析', icon: BarChart3 },
             ]
         },
         {

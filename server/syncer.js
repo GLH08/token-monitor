@@ -40,75 +40,165 @@ async function setMeta(key, value) {
 }
 
 async function updateStats(logs) {
+    return updateAggregates(logs, { includeStats: true, includeUsageStats: true });
+}
+
+async function updateUsageStats(logs) {
+    return updateAggregates(logs, { includeStats: false, includeUsageStats: true });
+}
+
+async function updateAggregates(logs, { includeStats, includeUsageStats }) {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
-            
-            const stmt = db.prepare(`
+
+            const statsStmt = includeStats ? db.prepare(`
                 INSERT INTO stats (channel_id, model_name, hour, tokens, request_count, quota, error_count, avg_latency)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, model_name, hour)
-                DO UPDATE SET 
+                DO UPDATE SET
                     tokens = tokens + excluded.tokens,
                     request_count = request_count + excluded.request_count,
                     quota = quota + excluded.quota,
                     error_count = error_count + excluded.error_count,
-                    avg_latency = CASE 
-                        WHEN request_count + excluded.request_count > 0 
+                    avg_latency = CASE
+                        WHEN request_count + excluded.request_count > 0
                         THEN (avg_latency * request_count + excluded.avg_latency * excluded.request_count) / (request_count + excluded.request_count)
-                        ELSE 0 
+                        ELSE 0
                     END
-            `);
+            `) : null;
 
-            // 按 channel_id + model_name + hour 聚合
-            const aggregated = {};
-            
+            const usageStmt = includeUsageStats ? db.prepare(`
+                INSERT INTO usage_stats (
+                    hour, user_group, channel_id, model_name, token_id,
+                    prompt_tokens, completion_tokens, tokens, request_count, quota, error_count, avg_latency
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(hour, user_group, channel_id, model_name, token_id)
+                DO UPDATE SET
+                    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+                    completion_tokens = completion_tokens + excluded.completion_tokens,
+                    tokens = tokens + excluded.tokens,
+                    request_count = request_count + excluded.request_count,
+                    quota = quota + excluded.quota,
+                    error_count = error_count + excluded.error_count,
+                    avg_latency = CASE
+                        WHEN request_count + excluded.request_count > 0
+                        THEN (avg_latency * request_count + excluded.avg_latency * excluded.request_count) / (request_count + excluded.request_count)
+                        ELSE 0
+                    END
+            `) : null;
+
+            const statsAggregated = {};
+            const usageAggregated = {};
+
             logs.forEach(log => {
                 const timestamp = Number(log.createdAt);
                 const hour = Math.floor(timestamp / 3600) * 3600;
-                const key = `${log.channelId}:${log.modelName}:${hour}`;
-                
-                if (!aggregated[key]) {
-                    aggregated[key] = {
-                        channelId: log.channelId,
-                        modelName: log.modelName,
-                        hour: hour,
-                        tokens: 0,
-                        requestCount: 0,
-                        quota: 0,
-                        errorCount: 0,
-                        latencySum: 0
-                    };
+                const channelId = log.channelId || 0;
+                const modelName = log.modelName || '';
+                const tokenId = log.tokenId || 0;
+                const userGroup = log.group || '';
+                const promptTokens = log.promptTokens || 0;
+                const completionTokens = log.completionTokens || 0;
+                const totalTokens = promptTokens + completionTokens;
+                const quota = log.quota || 0;
+                const latency = log.useTime || 0;
+                const errorCount = log.type === LOG_TYPE_ERROR ? 1 : 0;
+
+                if (includeStats) {
+                    const statsKey = `${channelId}:${modelName}:${hour}`;
+                    if (!statsAggregated[statsKey]) {
+                        statsAggregated[statsKey] = {
+                            channelId,
+                            modelName,
+                            hour,
+                            tokens: 0,
+                            requestCount: 0,
+                            quota: 0,
+                            errorCount: 0,
+                            latencySum: 0
+                        };
+                    }
+                    const statsAgg = statsAggregated[statsKey];
+                    statsAgg.tokens += totalTokens;
+                    statsAgg.requestCount++;
+                    statsAgg.quota += quota;
+                    statsAgg.errorCount += errorCount;
+                    statsAgg.latencySum += latency;
                 }
-                
-                const agg = aggregated[key];
-                const totalTokens = (log.promptTokens || 0) + (log.completionTokens || 0);
-                
-                agg.tokens += totalTokens;
-                agg.requestCount++;
-                agg.quota += log.quota || 0;
-                agg.latencySum += log.useTime || 0;
-                
-                if (log.type === LOG_TYPE_ERROR) {
-                    agg.errorCount++;
+
+                if (includeUsageStats) {
+                    const usageKey = `${hour}:${userGroup}:${channelId}:${modelName}:${tokenId}`;
+                    if (!usageAggregated[usageKey]) {
+                        usageAggregated[usageKey] = {
+                            hour,
+                            userGroup,
+                            channelId,
+                            modelName,
+                            tokenId,
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            tokens: 0,
+                            requestCount: 0,
+                            quota: 0,
+                            errorCount: 0,
+                            latencySum: 0
+                        };
+                    }
+                    const usageAgg = usageAggregated[usageKey];
+                    usageAgg.promptTokens += promptTokens;
+                    usageAgg.completionTokens += completionTokens;
+                    usageAgg.tokens += totalTokens;
+                    usageAgg.requestCount++;
+                    usageAgg.quota += quota;
+                    usageAgg.errorCount += errorCount;
+                    usageAgg.latencySum += latency;
                 }
             });
 
-            Object.values(aggregated).forEach(agg => {
-                const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
-                stmt.run(
-                    agg.channelId, 
-                    agg.modelName, 
-                    agg.hour, 
-                    agg.tokens, 
-                    agg.requestCount, 
-                    agg.quota,
-                    agg.errorCount,
-                    avgLatency
-                );
-            });
+            if (statsStmt) {
+                Object.values(statsAggregated).forEach(agg => {
+                    const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
+                    statsStmt.run(
+                        agg.channelId,
+                        agg.modelName,
+                        agg.hour,
+                        agg.tokens,
+                        agg.requestCount,
+                        agg.quota,
+                        agg.errorCount,
+                        avgLatency
+                    );
+                });
+            }
 
-            stmt.finalize();
+            if (usageStmt) {
+                Object.values(usageAggregated).forEach(agg => {
+                    const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
+                    usageStmt.run(
+                        agg.hour,
+                        agg.userGroup,
+                        agg.channelId,
+                        agg.modelName,
+                        agg.tokenId,
+                        agg.promptTokens,
+                        agg.completionTokens,
+                        agg.tokens,
+                        agg.requestCount,
+                        agg.quota,
+                        agg.errorCount,
+                        avgLatency
+                    );
+                });
+            }
+
+            if (statsStmt) {
+                statsStmt.finalize();
+            }
+            if (usageStmt) {
+                usageStmt.finalize();
+            }
             db.run("COMMIT", (err) => {
                 if (err) reject(err);
                 else resolve();
@@ -229,6 +319,7 @@ async function cleanOldData() {
         const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
         
         await db.runAsync("DELETE FROM stats WHERE hour < ?", [thirtyDaysAgo]);
+        await db.runAsync("DELETE FROM usage_stats WHERE hour < ?", [thirtyDaysAgo]);
         await db.runAsync("DELETE FROM channel_snapshots WHERE snapshot_time < ?", [thirtyDaysAgo]);
         await db.runAsync("DELETE FROM alert_history WHERE triggered_at < ?", [thirtyDaysAgo]);
         
@@ -247,6 +338,13 @@ async function rebuildStatsForDateRange(startTs, endTs) {
     // 1. 从 stats 中删除旧有聚合数据
     await new Promise((resolve, reject) => {
         db.run("DELETE FROM stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+
+    await new Promise((resolve, reject) => {
+        db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
             if (err) reject(err);
             else resolve();
         });
@@ -286,5 +384,73 @@ async function rebuildStatsForDateRange(startTs, endTs) {
     return { processedLogs, processedBatches, timeRange: { startTs, endTs } };
 }
 
-module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, rebuildStatsForDateRange };
+async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
+    if (!startTs || !endTs || startTs >= endTs) {
+        throw new Error('Invalid time range for usage_stats rebuild');
+    }
+
+    await new Promise((resolve, reject) => {
+        db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+
+    let processedLogs = 0;
+    let processedBatches = 0;
+    let lastId = 0;
+
+    while (true) {
+        const where = {
+            id: { gt: lastId },
+            createdAt: { gte: BigInt(startTs), lte: BigInt(endTs) },
+            type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+        };
+        if (maxId !== null) {
+            where.id.lte = maxId;
+        }
+
+        const logs = await prisma.log.findMany({
+            where,
+            take: BATCH_SIZE,
+            orderBy: { id: 'asc' }
+        });
+
+        if (logs.length === 0) {
+            break;
+        }
+
+        processedBatches += 1;
+        processedLogs += logs.length;
+        console.log(`[REBUILD] Usage batch ${processedBatches}: fetched ${logs.length} logs in time range`);
+
+        await updateUsageStats(logs);
+
+        lastId = logs[logs.length - 1].id;
+    }
+
+    return { processedLogs, processedBatches, timeRange: { startTs, endTs } };
+}
+
+async function ensureUsageStatsBackfill() {
+    const completed = await getMeta('usage_stats_backfilled_v1');
+    if (completed) {
+        return { skipped: true };
+    }
+
+    const lastIdStr = await getMeta('last_synced_id');
+    const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
+    if (!lastSyncedId) {
+        await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
+        return { skipped: true };
+    }
+
+    const endTs = Math.floor(Date.now() / 1000);
+    const startTs = endTs - 30 * 24 * 3600;
+    const result = await rebuildUsageStatsForDateRange(startTs, endTs, lastSyncedId);
+    await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
+    return result;
+}
+
+module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, rebuildStatsForDateRange, ensureUsageStatsBackfill };
 

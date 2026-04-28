@@ -141,6 +141,57 @@ function requirePasswordLogin(body) {
     return { password };
 }
 
+function parseUsageDimension(value, defaultValue = 'model') {
+    return parseWindow(value, ['group', 'channel', 'model', 'token'], defaultValue);
+}
+
+function parseUsageMetric(value, defaultValue = 'cost') {
+    return parseWindow(value, ['cost', 'tokens', 'requests', 'quota'], defaultValue);
+}
+
+function parseUsageSplit(value, defaultValue = 'none') {
+    return parseWindow(value, ['none', 'group', 'channel', 'model', 'token'], defaultValue);
+}
+
+function parseUsageFilters(query) {
+    const now = Math.floor(Date.now() / 1000);
+    const timeRange = parseTimeRange(query, { startTs: now - 24 * 3600, endTs: now });
+    const channelId = parseOptionalId(query.channel_id);
+    const tokenId = parseOptionalId(query.token_id);
+    const limit = parsePositiveInt(query.limit, { defaultValue: 20, min: 1, max: 100 });
+    const dimension = parseUsageDimension(query.dimension);
+    const metric = parseUsageMetric(query.metric);
+    const split = parseUsageSplit(query.split);
+
+    if (
+        !timeRange
+        || (query.channel_id && channelId === null)
+        || (query.token_id && tokenId === null)
+        || limit === null
+        || dimension === null
+        || metric === null
+        || split === null
+    ) {
+        return null;
+    }
+
+    const userGroup = typeof query.group === 'string' ? query.group.trim() : '';
+    const modelName = typeof query.model_name === 'string' ? query.model_name.trim() : '';
+
+    return {
+        startTs: timeRange.startTs,
+        endTs: timeRange.endTs,
+        userGroup,
+        channelId,
+        tokenId,
+        modelName,
+        limit,
+        dimension,
+        metric,
+        split
+    };
+}
+
 function sendValidationError(res, message = 'Invalid request') {
     return res.status(400).json({ error: message });
 }
@@ -154,6 +205,7 @@ module.exports = {
     parsePagination,
     parsePositiveInt,
     parseTimeRange,
+    parseUsageFilters,
     parseWindow,
     requirePasswordLogin,
     sendValidationError

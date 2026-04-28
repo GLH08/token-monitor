@@ -48,7 +48,7 @@ const formatCompactNumber = (value) => new Intl.NumberFormat('en-US', {
 
 const formatPercent = (value) => `${(value || 0).toFixed(1)}%`;
 const formatCurrency = (value) => `$${(value || 0).toFixed(4)}`;
-const formatLatency = (value) => `${Math.round(value || 0)} ms`;
+const formatLatency = (value) => `${Math.round(value || 0)} s`;
 
 const DashboardTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) {

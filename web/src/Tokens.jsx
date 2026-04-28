@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { fetchTokensOverview } from './api';
 import { Key, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
 import { PageHeader, StatCard, PanelCard, LoadingState, EmptyState } from './components/PageUI';
@@ -24,8 +25,10 @@ const Tokens = () => {
     const formatQuota = (quota) => {
         if (quota >= 1000000) return `${(quota / 1000000).toFixed(2)}M`;
         if (quota >= 1000) return `${(quota / 1000).toFixed(1)}K`;
-        return quota.toString();
+        return (quota || 0).toString();
     };
+
+    const formatCost = (value) => `$${(value || 0).toFixed(4)}`;
 
     const getStatusBadge = (status) => {
         const map = {
@@ -98,8 +101,11 @@ const Tokens = () => {
                                 <th className="px-4 py-3 text-left font-semibold text-slate-600">状态</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">已用额度</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">剩余额度</th>
-                                <th className="px-4 py-3 text-right font-semibold text-slate-600">请求次数</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">24h 请求</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">24h Token</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">24h 成本</th>
                                 <th className="px-4 py-3 text-left font-semibold text-slate-600">过期时间</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">分析</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -111,7 +117,10 @@ const Tokens = () => {
                                         <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-20 ml-auto"></div></td>
                                         <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-20 ml-auto"></div></td>
                                         <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-16 ml-auto"></div></td>
+                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-16 ml-auto"></div></td>
+                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-16 ml-auto"></div></td>
                                         <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                                        <td className="px-4 py-3"><div className="h-4 bg-slate-200 rounded w-14 ml-auto"></div></td>
                                     </tr>
                                 ))
                             ) : tokens.map(t => (
@@ -132,8 +141,15 @@ const Tokens = () => {
                                         )}
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono">{t.usedCount.toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{formatQuota(t.tokens)}</td>
+                                    <td className="px-4 py-3 text-right font-mono text-emerald-600">{formatCost(t.cost)}</td>
                                     <td className="px-4 py-3 text-slate-500">
                                         {t.expiredTime === -1 ? '永不过期' : formatTime(t.expiredTime)}
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                        <Link to={`/usage?token_id=${t.id}&dimension=model`} className="text-cyan-600 hover:underline font-semibold">
+                                            查看
+                                        </Link>
                                     </td>
                                 </tr>
                             ))}

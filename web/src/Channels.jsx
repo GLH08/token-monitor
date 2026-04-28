@@ -213,8 +213,8 @@ const Channels = () => {
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-right">
-                                        <span className={`font-mono ${ch.avgLatency > 5000 ? 'text-red-600' : ch.avgLatency > 2000 ? 'text-yellow-600' : 'text-slate-600'}`}>
-                                            {ch.avgLatency}ms
+                                        <span className={`font-mono ${ch.avgLatency > 5 ? 'text-red-600' : ch.avgLatency > 2 ? 'text-yellow-600' : 'text-slate-600'}`}>
+                                            {ch.avgLatency}s
                                         </span>
                                     </td>
                                 </tr>

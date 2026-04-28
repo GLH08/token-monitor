@@ -11,6 +11,7 @@ import Models from './Models';
 import Tokens from './Tokens';
 import Errors from './Errors';
 import ModelStatus from './ModelStatus';
+import CostTokenAnalysis from './CostTokenAnalysis';
 import { fetchAuthConfig, fetchAuthMe, getStoredToken, logout } from './api';
 
 const App = () => {
@@ -89,6 +90,7 @@ const App = () => {
         <Route path="/models" element={<Models />} />
         <Route path="/model-status" element={<ModelStatus />} />
         <Route path="/tokens" element={<Tokens />} />
+        <Route path="/usage" element={<CostTokenAnalysis />} />
         <Route path="/errors" element={<Errors />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

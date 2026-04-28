@@ -45,8 +45,8 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                         </div>
                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                             <p className="text-xs text-slate-500 font-medium mb-1">耗时</p>
-                            <p className={`text-sm font-mono font-bold ${log.useTime > 2000 ? 'text-amber-500' : 'text-slate-700'}`}>
-                                {log.useTime} ms
+                            <p className={`text-sm font-mono font-bold ${log.useTime > 2 ? 'text-amber-500' : 'text-slate-700'}`}>
+                                {log.useTime} s
                             </p>
                         </div>
                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
@@ -109,7 +109,7 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                                             prompt_tokens: log.promptTokens,
                                             completion_tokens: log.completionTokens,
                                             total_tokens: log.promptTokens + log.completionTokens,
-                                            duration_ms: log.useTime,
+                                            duration_seconds: log.useTime,
                                             cost: (log.quota / 500000).toFixed(6) + ' USD',
                                             timestamp: new Date(parseInt(log.createdAt) * 1000).toISOString()
                                         }
@@ -265,8 +265,8 @@ const LogsTable = () => {
                                             <span className="bg-slate-50 px-2 py-1 rounded text-slate-600 border border-slate-100">{log.modelName}</span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <span className={`font-mono font-medium ${log.useTime > 2000 ? 'text-amber-500' : 'text-slate-600'}`}>
-                                                {log.useTime} ms
+                                            <span className={`font-mono font-medium ${log.useTime > 2 ? 'text-amber-500' : 'text-slate-600'}`}>
+                                                {log.useTime} s
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
