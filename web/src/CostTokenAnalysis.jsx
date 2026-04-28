@@ -174,9 +174,6 @@ const CostTokenAnalysis = () => {
     };
 
     const handleTimeRangeChange = (value) => {
-        if (value === 'custom') {
-            return;
-        }
         setFilter({ window: value });
     };
 
@@ -205,9 +202,9 @@ const CostTokenAnalysis = () => {
                 description="按分组、渠道、模型、Token 和时间窗口查看成本与 Token 消耗"
                 actions={
                     <TimeRangeTabs
-                        value={hasCustomRange ? 'custom' : windowValue}
+                        value={windowValue}
                         onChange={handleTimeRangeChange}
-                        options={[...TIME_OPTIONS, { value: 'custom', label: '自定义' }]}
+                        options={TIME_OPTIONS}
                         activeClassName="bg-gradient-to-r from-emerald-500 to-cyan-600 text-white shadow-md shadow-emerald-500/20"
                     />
                 }
@@ -215,7 +212,7 @@ const CostTokenAnalysis = () => {
 
             <FilterBar
                 icon={Filter}
-                contentClassName="flex flex-wrap gap-3 items-center"
+                contentClassName="flex flex-col gap-3"
                 action={
                     <button
                         type="button"
@@ -228,13 +225,15 @@ const CostTokenAnalysis = () => {
                     </button>
                 }
             >
-                <FilterSelect label="分组" value={filters.group} onChange={(value) => setFilter({ group: value })} options={filterOptions.groups} allLabel="全部分组" />
-                <ChannelSelect channels={channels} value={filters.channel_id} onChange={(value) => setFilter({ channel_id: value })} />
-                <FilterSelect label="模型" value={filters.model_name} onChange={(value) => setFilter({ model_name: value })} options={filterOptions.models} allLabel="全部模型" selectClassName="max-w-72" />
-                <FilterSelect label="Token" value={filters.token_id} onChange={(value) => setFilter({ token_id: value })} options={filterOptions.tokens} allLabel="全部 Token" selectClassName="max-w-72" />
-                <FilterSelect label="指标" value={metric} onChange={(value) => setFilter({ metric: value })} options={METRIC_OPTIONS} />
-                <FilterSelect label="维度" value={dimension} onChange={(value) => setFilter({ dimension: value })} options={DIMENSION_OPTIONS.map((option) => ({ ...option, label: `按${option.label}` }))} />
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white">
+                <div className="flex flex-wrap gap-3 items-center">
+                    <FilterSelect label="分组" value={filters.group} onChange={(value) => setFilter({ group: value })} options={filterOptions.groups} allLabel="全部分组" />
+                    <ChannelSelect channels={channels} value={filters.channel_id} onChange={(value) => setFilter({ channel_id: value })} />
+                    <FilterSelect label="模型" value={filters.model_name} onChange={(value) => setFilter({ model_name: value })} options={filterOptions.models} allLabel="全部模型" selectClassName="max-w-64" />
+                    <FilterSelect label="Token" value={filters.token_id} onChange={(value) => setFilter({ token_id: value })} options={filterOptions.tokens} allLabel="全部 Token" selectClassName="max-w-64" />
+                    <FilterSelect label="指标" value={metric} onChange={(value) => setFilter({ metric: value })} options={METRIC_OPTIONS} />
+                    <FilterSelect label="维度" value={dimension} onChange={(value) => setFilter({ dimension: value })} options={DIMENSION_OPTIONS.map((option) => ({ ...option, label: `按${option.label}` }))} />
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white w-fit">
                     <Clock size={16} className="text-slate-400" />
                     <CustomDateTimePicker label="开始时间" value={customStart} onChange={setCustomStart} />
                     <span className="text-slate-300">→</span>
@@ -251,13 +250,13 @@ const CostTokenAnalysis = () => {
                 <EmptyState title="加载失败" description={error.message} className="bg-white rounded-xl border" />
             ) : (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
-                        <StatCard icon={DollarSign} iconWrapperClassName="bg-emerald-100" iconClassName="text-emerald-600" value={formatCost(summary?.cost)} label="计费成本" valueClassName="text-emerald-600" />
-                        <StatCard icon={Database} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={formatCompact(summary?.quota)} label="计费 Quota" />
-                        <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={formatCompact(summary?.prompt_tokens)} label="输入 Token" valueClassName="text-blue-600" />
-                        <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatCompact(summary?.completion_tokens)} label="输出 Token" valueClassName="text-violet-600" />
-                        <StatCard icon={Coins} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={formatCompact(summary?.cache_hit_tokens)} label="缓存命中 Token" valueClassName="text-amber-600" />
-                        <StatCard icon={TrendingUp} iconWrapperClassName="bg-cyan-100" iconClassName="text-cyan-600" value={formatCompact(summary?.requests)} label="请求数" valueClassName="text-cyan-600" />
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                        <StatCard icon={DollarSign} iconWrapperClassName="bg-emerald-100" iconClassName="text-emerald-600" value={formatCost(summary?.cost)} label="计费成本" valueClassName="text-emerald-600 text-2xl" />
+                        <StatCard icon={Database} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={formatCompact(summary?.quota)} label="计费 Quota" valueClassName="text-2xl" />
+                        <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={formatCompact(summary?.prompt_tokens)} label="输入 Token" valueClassName="text-blue-600 text-2xl" />
+                        <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatCompact(summary?.completion_tokens)} label="输出 Token" valueClassName="text-violet-600 text-2xl" />
+                        <StatCard icon={Coins} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={formatCompact(summary?.cache_hit_tokens)} label="缓存命中 Token" valueClassName="text-amber-600 text-2xl" />
+                        <StatCard icon={TrendingUp} iconWrapperClassName="bg-cyan-100" iconClassName="text-cyan-600" value={formatCompact(summary?.requests)} label="请求数" valueClassName="text-cyan-600 text-2xl" />
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
@@ -278,10 +277,10 @@ const CostTokenAnalysis = () => {
                         <PanelCard title={`Top ${metricLabel(metric)} 分布`} className="xl:col-span-2" bodyClassName="p-6">
                             <div className="h-[340px]">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={barData} layout="vertical" margin={{ left: 12, right: 12 }}>
+                                    <BarChart data={barData} layout="vertical" margin={{ left: 12, right: 20 }}>
                                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
                                         <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                                        <YAxis dataKey="name" type="category" width={170} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                        <YAxis dataKey="name" type="category" width={200} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                                         <Tooltip content={<UsageTooltip />} />
                                         <Bar dataKey={metric} name={metricLabel(metric)} fill="#06b6d4" radius={[0, 6, 6, 0]} />
                                     </BarChart>
@@ -309,7 +308,7 @@ const CostTokenAnalysis = () => {
                                     {breakdown.length ? breakdown.map((row) => (
                                         <tr key={row.key} className="hover:bg-slate-50">
                                             <td className="px-4 py-3 max-w-[360px]">
-                                                <div className="font-medium text-slate-800 whitespace-normal break-all" title={row.label}>{row.label}</div>
+                                                <div className="font-medium text-slate-800 whitespace-normal break-words" title={row.label}>{row.label}</div>
                                                 <div className="text-xs text-slate-400 break-all">{row.key || 'default'}</div>
                                             </td>
                                             <td className="px-4 py-3 text-right font-mono">{formatCost(row.cost)}</td>
