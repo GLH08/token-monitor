@@ -7,6 +7,8 @@ const BATCH_SIZE = 1000;
 const MAX_BATCHES_PER_RUN = Number.parseInt(process.env.SYNC_MAX_BATCHES_PER_RUN || '100', 10);
 const LOG_TYPE_CONSUME = 2;
 const LOG_TYPE_ERROR = 5;
+const USAGE_STATS_BACKFILL_KEY = 'usage_stats_backfilled_v1';
+const USAGE_STATS_CACHE_HIT_BACKFILL_KEY = 'usage_stats_cache_hit_backfilled_v2';
 
 const syncState = {
     lastFetchedCount: 0,
@@ -38,13 +40,27 @@ function parseCacheHitTokens(other) {
         }
 
         const candidates = [
+            ['cache_tokens'],
+            ['cacheTokens'],
             ['cached_tokens'],
             ['cache_hit_tokens'],
             ['cacheHitTokens'],
             ['cache_read_input_tokens'],
+            ['cache_read_input_tokens_total'],
+            ['cacheReadInputTokens'],
             ['prompt_tokens_details', 'cached_tokens'],
+            ['prompt_tokens_details', 'cache_read_input_tokens'],
+            ['usage', 'cache_tokens'],
+            ['usage', 'cached_tokens'],
+            ['usage', 'cache_hit_tokens'],
+            ['usage', 'cache_read_input_tokens'],
+            ['usage', 'input_tokens_details', 'cached_tokens'],
+            ['usage', 'input_tokens_details', 'cache_read_input_tokens'],
             ['usage', 'prompt_tokens_details', 'cached_tokens'],
-            ['input_token_details', 'cache_read']
+            ['usage', 'prompt_tokens_details', 'cache_read_input_tokens'],
+            ['input_token_details', 'cache_read'],
+            ['input_tokens_details', 'cache_read'],
+            ['input_tokens_details', 'cached_tokens']
         ];
 
         return candidates.reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
@@ -372,16 +388,19 @@ async function rebuildStatsForDateRange(startTs, endTs) {
         throw new Error('Invalid time range for rebuild');
     }
 
+    const startHour = Math.floor(startTs / 3600) * 3600;
+    const endHour = Math.floor(endTs / 3600) * 3600;
+
     // 1. 从 stats 中删除旧有聚合数据
     await new Promise((resolve, reject) => {
-        db.run("DELETE FROM stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
+        db.run("DELETE FROM stats WHERE hour >= ? AND hour <= ?", [startHour, endHour], function(err) {
             if (err) reject(err);
             else resolve();
         });
     });
 
     await new Promise((resolve, reject) => {
-        db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
+        db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startHour, endHour], function(err) {
             if (err) reject(err);
             else resolve();
         });
@@ -426,8 +445,11 @@ async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
         throw new Error('Invalid time range for usage_stats rebuild');
     }
 
+    const startHour = Math.floor(startTs / 3600) * 3600;
+    const endHour = Math.floor(endTs / 3600) * 3600;
+
     await new Promise((resolve, reject) => {
-        db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startTs, endTs], function(err) {
+        db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startHour, endHour], function(err) {
             if (err) reject(err);
             else resolve();
         });
@@ -473,15 +495,15 @@ async function ensureUsageStatsBackfill() {
     const lastIdStr = await getMeta('last_synced_id');
     const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
     if (!lastSyncedId) {
-        await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
-        await setMeta('usage_stats_cache_hit_backfilled_v1', new Date().toISOString());
+        await setMeta(USAGE_STATS_BACKFILL_KEY, new Date().toISOString());
+        await setMeta(USAGE_STATS_CACHE_HIT_BACKFILL_KEY, new Date().toISOString());
         return { skipped: true };
     }
 
     const endTs = Math.floor(Date.now() / 1000);
     const startTs = endTs - 30 * 24 * 3600;
-    const completed = await getMeta('usage_stats_backfilled_v1');
-    const cacheHitCompleted = await getMeta('usage_stats_cache_hit_backfilled_v1');
+    const completed = await getMeta(USAGE_STATS_BACKFILL_KEY);
+    const cacheHitCompleted = await getMeta(USAGE_STATS_CACHE_HIT_BACKFILL_KEY);
 
     if (completed && cacheHitCompleted) {
         return { skipped: true };
@@ -489,9 +511,9 @@ async function ensureUsageStatsBackfill() {
 
     const result = await rebuildUsageStatsForDateRange(startTs, endTs, lastSyncedId);
     if (!completed) {
-        await setMeta('usage_stats_backfilled_v1', new Date().toISOString());
+        await setMeta(USAGE_STATS_BACKFILL_KEY, new Date().toISOString());
     }
-    await setMeta('usage_stats_cache_hit_backfilled_v1', new Date().toISOString());
+    await setMeta(USAGE_STATS_CACHE_HIT_BACKFILL_KEY, new Date().toISOString());
     return result;
 }
 
