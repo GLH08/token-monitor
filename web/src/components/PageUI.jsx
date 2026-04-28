@@ -202,13 +202,14 @@ export const FilterSelect = ({
     options = [],
     allLabel = '全部',
     className = 'bg-white',
-    selectClassName = ''
+    selectClassName = '',
+    wrapperClassName = ''
 }) => {
     const normalizedValue = value ?? '';
     const hasCurrentValue = !normalizedValue || options.some((option) => String(option.value) === String(normalizedValue));
 
     return (
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border ${className}`.trim()}>
+        <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border ${className} ${wrapperClassName}`.trim()}>
             {label ? <span className="text-sm text-slate-500 whitespace-nowrap">{label}</span> : null}
             <select
                 value={normalizedValue}

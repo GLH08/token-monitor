@@ -228,7 +228,7 @@ const CostTokenAnalysis = () => {
                 <div className="flex flex-wrap gap-3 items-center">
                     <FilterSelect label="分组" value={filters.group} onChange={(value) => setFilter({ group: value })} options={filterOptions.groups} allLabel="全部分组" />
                     <ChannelSelect channels={channels} value={filters.channel_id} onChange={(value) => setFilter({ channel_id: value })} />
-                    <FilterSelect label="模型" value={filters.model_name} onChange={(value) => setFilter({ model_name: value })} options={filterOptions.models} allLabel="全部模型" selectClassName="max-w-64" />
+                    <FilterSelect label="模型" value={filters.model_name} onChange={(value) => setFilter({ model_name: value })} options={filterOptions.models} allLabel="全部模型" selectClassName="max-w-64" wrapperClassName="max-w-72" />
                     <FilterSelect label="Token" value={filters.token_id} onChange={(value) => setFilter({ token_id: value })} options={filterOptions.tokens} allLabel="全部 Token" selectClassName="max-w-64" />
                     <FilterSelect label="指标" value={metric} onChange={(value) => setFilter({ metric: value })} options={METRIC_OPTIONS} />
                     <FilterSelect label="维度" value={dimension} onChange={(value) => setFilter({ dimension: value })} options={DIMENSION_OPTIONS.map((option) => ({ ...option, label: `按${option.label}` }))} />
