@@ -210,10 +210,12 @@ const CostTokenAnalysis = () => {
                 }
             />
 
-            <FilterBar
-                icon={Filter}
-                contentClassName="flex flex-col gap-3"
-                action={
+            <FilterBar contentClassName="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-slate-700">
+                        <Filter size={18} className="text-slate-400" />
+                        <span className="text-sm font-semibold">筛选条件</span>
+                    </div>
                     <button
                         type="button"
                         onClick={clearFilters}
@@ -223,8 +225,7 @@ const CostTokenAnalysis = () => {
                         <RotateCcw size={16} />
                         清空
                     </button>
-                }
-            >
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     <FilterSelect label="分组" value={filters.group} onChange={(value) => setFilter({ group: value })} options={filterOptions.groups} allLabel="全部分组" wrapperClassName="w-full" selectClassName="w-full max-w-none min-w-0" />
                     <ChannelSelect channels={channels} value={filters.channel_id} onChange={(value) => setFilter({ channel_id: value })} className="w-full" wrapperClassName="w-full" selectClassName="w-full max-w-none min-w-0" />
@@ -232,9 +233,7 @@ const CostTokenAnalysis = () => {
                     <FilterSelect label="Token" value={filters.token_id} onChange={(value) => setFilter({ token_id: value })} options={filterOptions.tokens} allLabel="全部 Token" wrapperClassName="w-full" selectClassName="w-full max-w-none min-w-0" />
                     <FilterSelect label="指标" value={metric} onChange={(value) => setFilter({ metric: value })} options={METRIC_OPTIONS} wrapperClassName="w-full" selectClassName="w-full max-w-none min-w-0" />
                     <FilterSelect label="维度" value={dimension} onChange={(value) => setFilter({ dimension: value })} options={DIMENSION_OPTIONS.map((option) => ({ ...option, label: `按${option.label}` }))} wrapperClassName="w-full" selectClassName="w-full max-w-none min-w-0" />
-                </div>
-                <div className="flex flex-wrap gap-3 items-center justify-end">
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white">
+                    <div className="md:col-span-2 xl:col-span-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border bg-white">
                         <Clock size={16} className="text-slate-400" />
                         <CustomDateTimePicker label="开始时间" value={customStart} onChange={setCustomStart} />
                         <span className="text-slate-300">→</span>
@@ -254,11 +253,11 @@ const CostTokenAnalysis = () => {
                 <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                         <StatCard icon={DollarSign} iconWrapperClassName="bg-emerald-100" iconClassName="text-emerald-600" value={formatCost(summary?.cost)} label="计费成本" valueClassName="text-emerald-600 text-2xl" />
-                        <StatCard icon={Database} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={formatCompact(summary?.quota)} label="计费 Quota" valueClassName="text-2xl" />
-                        <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={formatCompact(summary?.prompt_tokens)} label="输入 Token" valueClassName="text-blue-600 text-2xl" />
-                        <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatCompact(summary?.completion_tokens)} label="输出 Token" valueClassName="text-violet-600 text-2xl" />
-                        <StatCard icon={Coins} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={formatCompact(summary?.cache_hit_tokens)} label="缓存命中 Token" valueClassName="text-amber-600 text-2xl" />
-                        <StatCard icon={TrendingUp} iconWrapperClassName="bg-cyan-100" iconClassName="text-cyan-600" value={formatCompact(summary?.requests)} label="请求数" valueClassName="text-cyan-600 text-2xl" />
+                        <StatCard icon={Database} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={formatInteger(summary?.quota)} label="计费 Quota" valueClassName="text-2xl" />
+                        <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={formatInteger(summary?.prompt_tokens)} label="输入 Token" valueClassName="text-blue-600 text-2xl" />
+                        <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatInteger(summary?.completion_tokens)} label="输出 Token" valueClassName="text-violet-600 text-2xl" />
+                        <StatCard icon={Coins} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={formatInteger(summary?.cache_hit_tokens)} label="缓存命中 Token" valueClassName="text-amber-600 text-2xl" />
+                        <StatCard icon={TrendingUp} iconWrapperClassName="bg-cyan-100" iconClassName="text-cyan-600" value={formatInteger(summary?.requests)} label="请求数" valueClassName="text-cyan-600 text-2xl" />
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
