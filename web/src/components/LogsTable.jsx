@@ -15,9 +15,14 @@ const toModelOptions = (result) => {
     }));
 };
 
+const getRequestId = (log) => {
+    const requestId = log?.requestId || log?.request_id;
+    return requestId ? String(requestId).trim() : '';
+};
 
 const LogDetailsDrawer = ({ log, onClose }) => {
     if (!log) return null;
+    const requestId = getRequestId(log);
 
     return (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -75,6 +80,10 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                             <p className="text-xs text-slate-500 font-medium mb-1">分组</p>
                             <p className="text-sm font-medium text-slate-700 break-all">{log.group || '-'}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 col-span-2">
+                            <p className="text-xs text-slate-500 font-medium mb-1">请求 ID</p>
+                            <p className="text-sm font-mono text-slate-700 break-all">{requestId || '-'}</p>
                         </div>
                     </div>
 
@@ -139,6 +148,7 @@ const LogDetailsDrawer = ({ log, onClose }) => {
                                         available_info: {
                                             model: log.modelName,
                                             channel_id: log.channelId,
+                                            request_id: requestId,
                                             input_tokens: log.inputTokens ?? log.promptTokens,
                                             output_tokens: log.outputTokens ?? log.completionTokens,
                                             total_tokens: log.totalTokens ?? ((log.promptTokens || 0) + (log.completionTokens || 0)),
@@ -179,6 +189,7 @@ const LogsTable = () => {
     } = usePaginatedData(fetchLogs, {
         channel_id: '',
         model_name: '',
+        request_id: '',
         start_ts: '',
         end_ts: ''
     }, { pageSize: 20, cacheKey: 'logs_cache' });
@@ -248,6 +259,17 @@ const LogsTable = () => {
                 <form onSubmit={handleSearch} className="flex flex-wrap gap-3 w-full xl:w-auto">
                     <ChannelSelect channels={channels} value={filters.channel_id} onChange={value => setFilters({ ...filters, channel_id: value })} />
                     <FilterSelect label="模型" value={filters.model_name} onChange={value => setFilters({ ...filters, model_name: value })} options={modelOptions} allLabel="全部模型" selectClassName="max-w-72" />
+                    <div className="flex items-center gap-2 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white">
+                        <Search size={18} className="text-slate-400" />
+                        <input
+                            type="search"
+                            value={filters.request_id}
+                            onChange={event => setFilters({ ...filters, request_id: event.target.value })}
+                            placeholder="请求 ID"
+                            aria-label="请求 ID"
+                            className="w-44 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 outline-none"
+                        />
+                    </div>
                     <div className="flex items-center gap-1 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors group focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white">
                         <Calendar size={18} className="text-slate-400 group-hover:text-cyan-500 transition-colors mr-2" />
                         <CustomDateTimePicker
@@ -276,6 +298,7 @@ const LogsTable = () => {
                                 <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs">ID</th>
                                 <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs">时间</th>
                                 <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs">渠道</th>
+                                <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs">请求 ID</th>
                                 <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs">模型</th>
                                 <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs text-right">耗时</th>
                                 <th className="px-6 py-4 font-semibold text-slate-500 uppercase tracking-wider text-xs text-right">Token</th>
@@ -285,14 +308,15 @@ const LogsTable = () => {
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {loading ? (
-                                <tr><td colSpan="8" className="text-center py-12 text-slate-400">加载中...</td></tr>
+                                <tr><td colSpan="9" className="text-center py-12 text-slate-400">加载中...</td></tr>
                             ) : logs.length === 0 ? (
-                                <tr><td colSpan="8"><EmptyState title="暂无日志" /></td></tr>
+                                <tr><td colSpan="9"><EmptyState title="暂无日志" /></td></tr>
                             ) : (
                                 logs.map(log => {
                                     const inputTokens = log.inputTokens ?? log.promptTokens ?? 0;
                                     const outputTokens = log.outputTokens ?? log.completionTokens ?? 0;
                                     const totalTokens = log.totalTokens ?? (inputTokens + outputTokens);
+                                    const requestId = getRequestId(log);
                                     return (
                                         <tr
                                             key={log.id}
@@ -307,6 +331,9 @@ const LogsTable = () => {
                                                 <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md text-xs font-medium border border-slate-200 group-hover:border-cyan-200 group-hover:bg-cyan-50 group-hover:text-cyan-700 transition-colors">
                                                     {log.channelId}
                                                 </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-slate-500 max-w-[180px] truncate font-mono" title={requestId}>
+                                                {requestId || '-'}
                                             </td>
                                             <td className="px-6 py-4 font-medium text-slate-700 max-w-[320px]">
                                                 <div className="bg-slate-50 px-2 py-1 rounded text-slate-600 border border-slate-100 whitespace-normal break-all" title={log.modelName}>{log.modelName}</div>

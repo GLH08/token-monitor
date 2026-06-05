@@ -23,6 +23,7 @@ const TIME_WINDOWS = {
 };
 
 const STATUS_IDLE = 'gray';
+const STATS_SLOT_SECONDS = 3600;
 
 // 缓存
 const cache = new Map();
@@ -36,6 +37,103 @@ function getStatusColor(successRate, totalRequests) {
     if (successRate >= 95) return 'green';
     if (successRate >= 80) return 'yellow';
     return 'red';
+}
+
+function createEmptySlots(config, windowStart) {
+    const slots = [];
+    for (let i = 0; i < config.numSlots; i++) {
+        const slotStart = windowStart + (i * config.slotSeconds);
+        const slotEnd = slotStart + config.slotSeconds;
+        slots.push({
+            slot: i,
+            start_time: slotStart,
+            end_time: slotEnd,
+            total_requests: 0,
+            success_count: 0,
+            success_rate: null,
+            status: STATUS_IDLE
+        });
+    }
+    return slots;
+}
+
+function fillSlots(slots, rows, windowStart, config) {
+    let totalRequests = 0;
+    let totalSuccess = 0;
+
+    rows.forEach(row => {
+        const slotStart = Number(row.slot_start);
+        const slotIndex = Math.floor((slotStart - windowStart) / config.slotSeconds);
+
+        if (slotIndex >= 0 && slotIndex < slots.length) {
+            const requests = Number(row.total_requests) || 0;
+            const success = Number(row.success_count) || 0;
+            slots[slotIndex].total_requests += requests;
+            slots[slotIndex].success_count += success;
+            totalRequests += requests;
+            totalSuccess += success;
+        }
+    });
+
+    slots.forEach(slot => {
+        if (slot.total_requests > 0) {
+            slot.success_rate = parseFloat((slot.success_count / slot.total_requests * 100).toFixed(2));
+        }
+        slot.status = getStatusColor(slot.success_rate, slot.total_requests);
+    });
+
+    return { totalRequests, totalSuccess };
+}
+
+async function fetchStatsSlotRows(modelName, windowStart, now, channelId) {
+    let query = `SELECT hour as slot_start, SUM(request_count) as total_requests,
+                 SUM(request_count) - SUM(error_count) as success_count,
+                 SUM(error_count) as error_count
+                 FROM stats WHERE model_name = ? AND hour >= ? AND hour < ?`;
+    const params = [modelName, windowStart, now];
+
+    if (channelId) {
+        query += ` AND channel_id = ?`;
+        params.push(channelId);
+    }
+
+    query += ` GROUP BY hour ORDER BY hour ASC`;
+    return db.allAsync(query, params);
+}
+
+async function fetchLogSlotRows(modelName, windowStart, now, slotSeconds, channelId) {
+    const where = {
+        modelName,
+        createdAt: { gte: windowStart, lt: now },
+        type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+    };
+
+    if (channelId) {
+        where.channelId = channelId;
+    }
+
+    const rows = await prisma.log.groupBy({
+        by: ['createdAt', 'type'],
+        where,
+        _count: { id: true }
+    });
+
+    const slotMap = new Map();
+    rows.forEach(row => {
+        const createdAt = Number(row.createdAt);
+        const slotStart = windowStart + Math.floor((createdAt - windowStart) / slotSeconds) * slotSeconds;
+        const current = slotMap.get(slotStart) || { slot_start: slotStart, total_requests: 0, success_count: 0, error_count: 0 };
+        const count = row._count.id || 0;
+        current.total_requests += count;
+        if (row.type === LOG_TYPE_ERROR) {
+            current.error_count += count;
+        } else {
+            current.success_count += count;
+        }
+        slotMap.set(slotStart, current);
+    });
+
+    return Array.from(slotMap.values()).sort((a, b) => a.slot_start - b.slot_start);
 }
 
 /**
@@ -139,66 +237,12 @@ async function getModelStatus(modelName, timeWindow = '24h', channelId = null) {
         const now = Math.floor(Date.now() / 1000);
         const windowStart = now - config.totalSeconds;
 
-        // 优化：从 stats 聚合表获取数据（而非查全量日志）
-        let query = `SELECT hour, SUM(request_count) as total_requests, 
-                     SUM(request_count) - SUM(error_count) as success_count,
-                     SUM(error_count) as error_count
-                     FROM stats WHERE model_name = ? AND hour >= ? AND hour < ?`;
-        const params = [modelName, windowStart, now];
+        const rows = config.slotSeconds >= STATS_SLOT_SECONDS
+            ? await fetchStatsSlotRows(modelName, windowStart, now, channelId)
+            : await fetchLogSlotRows(modelName, windowStart, now, config.slotSeconds, channelId);
 
-        if (channelId) {
-            query += ` AND channel_id = ?`;
-            params.push(channelId);
-        }
-
-        query += ` GROUP BY hour ORDER BY hour ASC`;
-
-        const rows = await db.allAsync(query, params);
-
-        // 构建小时到数据的映射
-        const hourMap = new Map();
-        rows.forEach(r => {
-            hourMap.set(r.hour, r);
-        });
-
-        // 初始化所有槽位
-        const slots = [];
-        for (let i = 0; i < config.numSlots; i++) {
-            const slotStart = windowStart + (i * config.slotSeconds);
-            const slotEnd = slotStart + config.slotSeconds;
-            slots.push({
-                slot: i,
-                start_time: slotStart,
-                end_time: slotEnd,
-                total_requests: 0,
-                success_count: 0,
-                success_rate: null,
-                status: STATUS_IDLE
-            });
-        }
-
-        // 填充数据：将按小时的 stats 数据映射到对应槽位
-        let totalRequests = 0;
-        let totalSuccess = 0;
-
-        rows.forEach(row => {
-            const slotIndex = Math.floor((row.hour - windowStart) / config.slotSeconds);
-
-            if (slotIndex >= 0 && slotIndex < config.numSlots) {
-                slots[slotIndex].total_requests += row.total_requests || 0;
-                slots[slotIndex].success_count += row.success_count || 0;
-                totalRequests += row.total_requests || 0;
-                totalSuccess += row.success_count || 0;
-            }
-        });
-
-        // 计算每个槽位的成功率和状态
-        slots.forEach(slot => {
-            if (slot.total_requests > 0) {
-                slot.success_rate = parseFloat((slot.success_count / slot.total_requests * 100).toFixed(2));
-            }
-            slot.status = getStatusColor(slot.success_rate, slot.total_requests);
-        });
+        const slots = createEmptySlots(config, windowStart);
+        const { totalRequests, totalSuccess } = fillSlots(slots, rows, windowStart, config);
 
         const overallRate = totalRequests > 0 ? parseFloat((totalSuccess / totalRequests * 100).toFixed(2)) : null;
 

@@ -11,6 +11,55 @@ const {
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
+const REQUEST_ID_KEYS = ['requestId', 'request_id', 'requestID', 'request-id', 'x-request-id'];
+
+function extractRequestIdFromJson(value) {
+    if (!value || typeof value !== 'object') return '';
+
+    for (const key of REQUEST_ID_KEYS) {
+        const direct = value[key];
+        if (direct !== undefined && direct !== null && String(direct).trim()) {
+            return String(direct).trim();
+        }
+    }
+
+    for (const nested of Object.values(value)) {
+        const found = extractRequestIdFromJson(nested);
+        if (found) return found;
+    }
+
+    return '';
+}
+
+function extractRequestId(requestId, ...jsonCandidates) {
+    if (requestId !== undefined && requestId !== null && String(requestId).trim()) {
+        return String(requestId).trim();
+    }
+
+    for (const value of jsonCandidates) {
+        if (typeof value !== 'string' || !value.trim()) continue;
+        try {
+            const found = extractRequestIdFromJson(JSON.parse(value));
+            if (found) return found;
+        } catch {
+            // Non-JSON content is still searched by the SQL filter.
+        }
+    }
+
+    return '';
+}
+
+function applyRequestIdFilter(where, rawRequestId) {
+    const requestId = typeof rawRequestId === 'string' ? rawRequestId.trim() : '';
+    if (!requestId) return;
+
+    where.OR = [
+        { requestId: { contains: requestId } },
+        { content: { contains: requestId } },
+        { other: { contains: requestId } }
+    ];
+}
+
 router.get('/logs', async (req, res) => {
     const pagination = parsePagination(req.query, { pageSize: 20, maxPageSize: 200 });
     const timeRange = parseTimeRange(req.query);
@@ -24,6 +73,7 @@ router.get('/logs', async (req, res) => {
         const where = { type: 2 };
         if (channelId !== null) where.channelId = channelId;
         if (req.query.model_name) where.modelName = req.query.model_name;
+        applyRequestIdFilter(where, req.query.request_id);
         if (timeRange.startTs !== null || timeRange.endTs !== null) {
             where.createdAt = {};
             if (timeRange.startTs !== null) where.createdAt.gte = timeRange.startTs;
@@ -58,6 +108,8 @@ router.get('/logs', async (req, res) => {
                 return {
                     ...l,
                     createdAt: l.createdAt.toString(),
+                    requestId: extractRequestId(l.requestId, l.content, l.other),
+                    request_id: extractRequestId(l.requestId, l.content, l.other),
                     inputTokens,
                     outputTokens,
                     cacheHitTokens: parseCacheHitTokens(l.other),
@@ -90,6 +142,7 @@ router.get('/errors', async (req, res) => {
         const where = { type: 5 };
         if (channelId !== null) where.channelId = channelId;
         if (req.query.model_name) where.modelName = req.query.model_name;
+        applyRequestIdFilter(where, req.query.request_id);
         if (timeRange.startTs !== null || timeRange.endTs !== null) {
             where.createdAt = {};
             if (timeRange.startTs !== null) where.createdAt.gte = timeRange.startTs;
@@ -106,24 +159,29 @@ router.get('/errors', async (req, res) => {
                 select: {
                     id: true, createdAt: true, channelId: true,
                     modelName: true, tokenId: true, tokenName: true, group: true,
-                    content: true, other: true, useTime: true
+                    content: true, other: true, useTime: true, requestId: true
                 }
             })
         ]);
 
         res.json({
-            logs: logs.map(l => ({
-                id: l.id,
-                created_at: Number(l.createdAt),
-                channel_id: l.channelId,
-                model_name: l.modelName,
-                token_id: l.tokenId,
-                token_name: l.tokenName,
-                group: l.group,
-                content: l.content,
-                other: l.other,
-                use_time: l.useTime
-            })),
+            logs: logs.map(l => {
+                const requestId = extractRequestId(l.requestId, l.content, l.other);
+                return {
+                    id: l.id,
+                    created_at: Number(l.createdAt),
+                    channel_id: l.channelId,
+                    model_name: l.modelName,
+                    token_id: l.tokenId,
+                    token_name: l.tokenName,
+                    group: l.group,
+                    request_id: requestId,
+                    requestId,
+                    content: l.content,
+                    other: l.other,
+                    use_time: l.useTime
+                };
+            }),
             total, page: pagination.page, pageSize: pagination.pageSize
         });
     } catch (error) {
@@ -158,3 +216,5 @@ router.get('/errors/summary', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.extractRequestId = extractRequestId;
+module.exports.applyRequestIdFilter = applyRequestIdFilter;

@@ -69,6 +69,18 @@ function parseCacheHitTokens(other) {
     }
 }
 
+function getRebuildHourRange(startTs, endTs) {
+    const startHour = Math.floor(startTs / 3600) * 3600;
+    const endHour = Math.floor((endTs - 1) / 3600) * 3600;
+
+    return {
+        startHour,
+        endHour,
+        queryStartTs: startHour,
+        queryEndTs: endHour + 3599
+    };
+}
+
 async function getMeta(key) {
     return new Promise((resolve, reject) => {
         db.get("SELECT value FROM meta WHERE key = ?", [key], (err, row) => {
@@ -388,8 +400,7 @@ async function rebuildStatsForDateRange(startTs, endTs) {
         throw new Error('Invalid time range for rebuild');
     }
 
-    const startHour = Math.floor(startTs / 3600) * 3600;
-    const endHour = Math.floor(endTs / 3600) * 3600;
+    const { startHour, endHour, queryStartTs, queryEndTs } = getRebuildHourRange(startTs, endTs);
 
     // 1. 从 stats 中删除旧有聚合数据
     await new Promise((resolve, reject) => {
@@ -415,7 +426,7 @@ async function rebuildStatsForDateRange(startTs, endTs) {
         const logs = await prisma.log.findMany({
             where: {
                 id: { gt: lastId },
-                createdAt: { gte: BigInt(startTs), lte: BigInt(endTs) },
+                createdAt: { gte: BigInt(queryStartTs), lte: BigInt(queryEndTs) },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },
             take: BATCH_SIZE,
@@ -437,7 +448,7 @@ async function rebuildStatsForDateRange(startTs, endTs) {
 
     await setMeta('last_rebuild_time', new Date().toISOString());
 
-    return { processedLogs, processedBatches, timeRange: { startTs, endTs } };
+    return { processedLogs, processedBatches, timeRange: { startTs, endTs }, rebuiltHours: { startHour, endHour } };
 }
 
 async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
@@ -445,8 +456,7 @@ async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
         throw new Error('Invalid time range for usage_stats rebuild');
     }
 
-    const startHour = Math.floor(startTs / 3600) * 3600;
-    const endHour = Math.floor(endTs / 3600) * 3600;
+    const { startHour, endHour, queryStartTs, queryEndTs } = getRebuildHourRange(startTs, endTs);
 
     await new Promise((resolve, reject) => {
         db.run("DELETE FROM usage_stats WHERE hour >= ? AND hour <= ?", [startHour, endHour], function(err) {
@@ -462,7 +472,7 @@ async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
     while (true) {
         const where = {
             id: { gt: lastId },
-            createdAt: { gte: BigInt(startTs), lte: BigInt(endTs) },
+            createdAt: { gte: BigInt(queryStartTs), lte: BigInt(queryEndTs) },
             type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
         };
         if (maxId !== null) {
@@ -488,7 +498,7 @@ async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
         lastId = logs[logs.length - 1].id;
     }
 
-    return { processedLogs, processedBatches, timeRange: { startTs, endTs } };
+    return { processedLogs, processedBatches, timeRange: { startTs, endTs }, rebuiltHours: { startHour, endHour } };
 }
 
 async function ensureUsageStatsBackfill() {
@@ -517,5 +527,17 @@ async function ensureUsageStatsBackfill() {
     return result;
 }
 
-module.exports = { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, rebuildStatsForDateRange, ensureUsageStatsBackfill, parseCacheHitTokens };
+module.exports = {
+    syncLogs,
+    syncChannelSnapshots,
+    cleanOldData,
+    getSyncState,
+    prisma,
+    rebuildStatsForDateRange,
+    ensureUsageStatsBackfill,
+    parseCacheHitTokens,
+    getRebuildHourRange,
+    updateStats,
+    updateUsageStats
+};
 

@@ -22,3 +22,6 @@ npm-debug.log*
 
 # Node modules (if running locally)
 node_modules/
+
+# Local app data
+server/data/
