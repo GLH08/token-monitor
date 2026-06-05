@@ -7,3 +7,15 @@ body {
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
+
+.recharts-wrapper,
+.recharts-surface {
+  outline: none;
+}
+
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible {
+  outline: none;
+}

@@ -256,35 +256,41 @@ const LogsTable = () => {
                     <div className="w-1 h-6 bg-cyan-500 rounded-full"></div>
                     <h3 className="text-lg font-bold text-slate-800">请求日志</h3>
                 </div>
-                <form onSubmit={handleSearch} className="flex flex-wrap gap-3 w-full xl:w-auto">
-                    <ChannelSelect channels={channels} value={filters.channel_id} onChange={value => setFilters({ ...filters, channel_id: value })} />
-                    <FilterSelect label="模型" value={filters.model_name} onChange={value => setFilters({ ...filters, model_name: value })} options={modelOptions} allLabel="全部模型" selectClassName="max-w-72" />
-                    <div className="flex items-center gap-2 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white">
-                        <Search size={18} className="text-slate-400" />
+                <form onSubmit={handleSearch} className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(180px,220px)_minmax(220px,1fr)_minmax(190px,220px)_minmax(360px,420px)_auto] xl:items-center xl:w-full">
+                    <ChannelSelect channels={channels} value={filters.channel_id} onChange={value => setFilters({ ...filters, channel_id: value })} wrapperClassName="w-full" selectClassName="w-full min-w-0 max-w-none" />
+                    <FilterSelect label="模型" value={filters.model_name} onChange={value => setFilters({ ...filters, model_name: value })} options={modelOptions} allLabel="全部模型" wrapperClassName="w-full" selectClassName="w-full min-w-0 max-w-none" />
+                    <div className="flex w-full items-center gap-2 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white">
+                        <Search size={18} className="shrink-0 text-slate-400" />
                         <input
                             type="search"
                             value={filters.request_id}
                             onChange={event => setFilters({ ...filters, request_id: event.target.value })}
                             placeholder="请求 ID"
                             aria-label="请求 ID"
-                            className="w-44 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 outline-none"
+                            className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 outline-none"
                         />
                     </div>
-                    <div className="flex items-center gap-1 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors group focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white">
-                        <Calendar size={18} className="text-slate-400 group-hover:text-cyan-500 transition-colors mr-2" />
-                        <CustomDateTimePicker
-                            label="开始时间"
-                            value={dateInputs.start}
-                            onChange={val => setDateInputs({ ...dateInputs, start: val })}
-                        />
+                    <div className="flex w-full flex-wrap items-center gap-1 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-1.5 hover:border-cyan-400 transition-colors group focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 focus-within:bg-white md:col-span-2 xl:col-span-1">
+                        <Calendar size={18} className="mr-1 shrink-0 text-slate-400 group-hover:text-cyan-500 transition-colors" />
+                        <div className="min-w-0 flex-1">
+                            <CustomDateTimePicker
+                                label="开始时间"
+                                value={dateInputs.start}
+                                onChange={val => setDateInputs({ ...dateInputs, start: val })}
+                                minWidthClassName="min-w-0"
+                            />
+                        </div>
                         <span className="text-slate-300 font-medium px-1">→</span>
-                        <CustomDateTimePicker
-                            label="结束时间"
-                            value={dateInputs.end}
-                            onChange={val => setDateInputs({ ...dateInputs, end: val })}
-                        />
+                        <div className="min-w-0 flex-1">
+                            <CustomDateTimePicker
+                                label="结束时间"
+                                value={dateInputs.end}
+                                onChange={val => setDateInputs({ ...dateInputs, end: val })}
+                                minWidthClassName="min-w-0"
+                            />
+                        </div>
                     </div>
-                    <button type="submit" className="bg-gradient-to-r from-cyan-500 to-cyan-600 text-white px-6 py-2.5 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all duration-200 flex items-center gap-2 font-medium active:scale-95">
+                    <button type="submit" className="inline-flex h-full min-h-[42px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-600 px-6 py-2.5 font-medium text-white transition-all duration-200 hover:shadow-lg hover:shadow-cyan-500/30 active:scale-95 md:col-span-2 xl:col-span-1 xl:w-auto">
                         <Search size={18} /> 查询
                     </button>
                 </form>
