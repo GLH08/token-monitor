@@ -168,7 +168,11 @@ const Channels = () => {
                                 <th className="px-4 py-3 text-left font-semibold text-slate-600">渠道</th>
                                 <th className="px-4 py-3 text-left font-semibold text-slate-600">类型</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">请求数</th>
-                                <th className="px-4 py-3 text-right font-semibold text-slate-600">Token</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">净输入</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">输出</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">缓存</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">吞吐总计</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">日志总计</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">费用</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">错误率</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">平均延迟</th>
@@ -189,7 +193,7 @@ const Channels = () => {
                                 ))
                             ) : performance.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7}>
+                                    <td colSpan={11}>
                                         <EmptyState icon={Server} title="暂无渠道数据" />
                                     </td>
                                 </tr>
@@ -205,7 +209,11 @@ const Channels = () => {
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono">{ch.requests.toLocaleString()}</td>
-                                    <td className="px-4 py-3 text-right font-mono">{ch.tokens.toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(ch.net_input_tokens || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(ch.completion_tokens || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(ch.cache_hit_tokens || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(ch.throughput_total || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(ch.tokens || 0).toLocaleString()}</td>
                                     <td className="px-4 py-3 text-right font-mono text-green-600">${ch.cost.toFixed(4)}</td>
                                     <td className="px-4 py-3 text-right">
                                         <span className={`px-2 py-0.5 rounded text-xs font-bold ${parseFloat(ch.errorRate) > 5 ? 'bg-red-100 text-red-700' : parseFloat(ch.errorRate) > 1 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>

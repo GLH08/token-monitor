@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchLatencyAnalysis } from './api';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, Clock, AlertTriangle, Zap, RefreshCw } from 'lucide-react';
+import { Activity, Clock, AlertTriangle, Zap, RefreshCw, Upload, Download, Database, Coins } from 'lucide-react';
 import { EmptyState, LoadingState, PageHeader, PanelCard, StatCard, TIME_RANGE_PRESETS, TimeRangeTabs } from './components/PageUI';
 
 const formatCompactNumber = (value) => new Intl.NumberFormat('en-US', {
@@ -141,7 +141,11 @@ const Performance = () => {
         const trend = data.latency_trend || [];
         const slowRequests = data.slow_requests || [];
         const totalRequests = trend.reduce((sum, item) => sum + (item.rpm || 0), 0);
-        const totalTokens = trend.reduce((sum, item) => sum + (item.tpm || 0), 0);
+        const totalTokens = trend.reduce((sum, item) => sum + (item.tpm || item.tokens || 0), 0);
+        const netInputTokens = trend.reduce((sum, item) => sum + (item.net_input_tokens || 0), 0);
+        const completionTokens = trend.reduce((sum, item) => sum + (item.completion_tokens || 0), 0);
+        const cacheHitTokens = trend.reduce((sum, item) => sum + (item.cache_hit_tokens || 0), 0);
+        const throughputTotal = trend.reduce((sum, item) => sum + (item.throughput_total || 0), 0);
         const weightedLatency = trend.reduce((sum, item) => sum + ((item.avg_latency || 0) * (item.rpm || 0)), 0);
         const averageLatency = totalRequests > 0 ? weightedLatency / totalRequests : 0;
         const maxLatency = slowRequests.reduce((max, item) => Math.max(max, item.useTime || 0), 0);
@@ -149,6 +153,10 @@ const Performance = () => {
         return {
             totalRequests,
             totalTokens,
+            netInputTokens,
+            completionTokens,
+            cacheHitTokens,
+            throughputTotal,
             averageLatency,
             topSlowEntries: slowRequests.length,
             maxLatency,
@@ -196,14 +204,6 @@ const Performance = () => {
                     valueClassName="text-blue-600"
                 />
                 <StatCard
-                    icon={Zap}
-                    iconWrapperClassName="bg-amber-100"
-                    iconClassName="text-amber-600"
-                    value={getSummaryValue(formatCompactNumber(summary.totalTokens), metricsUnavailable)}
-                    label="Token 总量"
-                    valueClassName="text-amber-600"
-                />
-                <StatCard
                     icon={Clock}
                     iconWrapperClassName="bg-violet-100"
                     iconClassName="text-violet-600"
@@ -219,7 +219,26 @@ const Performance = () => {
                     label="Top 20 慢请求"
                     valueClassName="text-red-600"
                 />
+                <StatCard
+                    icon={Coins}
+                    iconWrapperClassName="bg-cyan-100"
+                    iconClassName="text-cyan-600"
+                    value={getSummaryValue(formatCompactNumber(summary.throughputTotal), metricsUnavailable)}
+                    label="吞吐总计"
+                    hint="净输入 + 输出 + 缓存"
+                    valueClassName="text-cyan-600"
+                />
             </div>
+
+            <PanelCard title="Token 分项" bodyClassName="p-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                    <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={getSummaryValue(formatCompactNumber(summary.netInputTokens), metricsUnavailable)} label="净输入" hint="prompt − 缓存" valueClassName="text-blue-600" />
+                    <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={getSummaryValue(formatCompactNumber(summary.completionTokens), metricsUnavailable)} label="输出" valueClassName="text-violet-600" />
+                    <StatCard icon={Database} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={getSummaryValue(formatCompactNumber(summary.cacheHitTokens), metricsUnavailable)} label="缓存读取" valueClassName="text-amber-600" />
+                    <StatCard icon={Coins} iconWrapperClassName="bg-cyan-100" iconClassName="text-cyan-600" value={getSummaryValue(formatCompactNumber(summary.throughputTotal), metricsUnavailable)} label="吞吐总计" hint="净输入 + 输出 + 缓存" valueClassName="text-cyan-600" />
+                    <StatCard icon={Coins} iconWrapperClassName="bg-slate-100" iconClassName="text-slate-600" value={getSummaryValue(formatCompactNumber(summary.totalTokens), metricsUnavailable)} label="日志总计" hint="prompt + completion" />
+                </div>
+            </PanelCard>
 
             {refreshError ? (
                 <PanelCard bodyClassName="px-4 py-3">

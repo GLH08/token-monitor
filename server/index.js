@@ -7,6 +7,8 @@ const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensu
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config();
 
 const app = express();

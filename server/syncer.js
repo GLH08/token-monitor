@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const db = require('./db');
+const { metricsFromLog, parseCacheHitTokens } = require('./tokenMetrics');
 
 const prisma = new PrismaClient();
 
@@ -22,52 +23,6 @@ const syncState = {
     lastRunFinishedAt: null,
     lastError: null
 };
-
-function getNestedNumber(source, path) {
-    const value = path.reduce((current, key) => current && current[key], source);
-    return Number.isFinite(Number(value)) ? Number(value) : 0;
-}
-
-function parseCacheHitTokens(other) {
-    if (!other) {
-        return 0;
-    }
-
-    try {
-        const parsed = typeof other === 'string' ? JSON.parse(other) : other;
-        if (!parsed || typeof parsed !== 'object') {
-            return 0;
-        }
-
-        const candidates = [
-            ['cache_tokens'],
-            ['cacheTokens'],
-            ['cached_tokens'],
-            ['cache_hit_tokens'],
-            ['cacheHitTokens'],
-            ['cache_read_input_tokens'],
-            ['cache_read_input_tokens_total'],
-            ['cacheReadInputTokens'],
-            ['prompt_tokens_details', 'cached_tokens'],
-            ['prompt_tokens_details', 'cache_read_input_tokens'],
-            ['usage', 'cache_tokens'],
-            ['usage', 'cached_tokens'],
-            ['usage', 'cache_hit_tokens'],
-            ['usage', 'cache_read_input_tokens'],
-            ['usage', 'input_tokens_details', 'cached_tokens'],
-            ['usage', 'input_tokens_details', 'cache_read_input_tokens'],
-            ['usage', 'prompt_tokens_details', 'cached_tokens'],
-            ['usage', 'prompt_tokens_details', 'cache_read_input_tokens'],
-            ['input_token_details', 'cache_read'],
-            ['input_tokens_details', 'cache_read'],
-            ['input_tokens_details', 'cached_tokens']
-        ];
-
-        return candidates.reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
-    } catch (error) {
-        return 0;
-    }
-}
 
 function getRebuildHourRange(startTs, endTs) {
     const startHour = Math.floor(startTs / 3600) * 3600;
@@ -113,10 +68,17 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
             db.run("BEGIN TRANSACTION");
 
             const statsStmt = includeStats ? db.prepare(`
-                INSERT INTO stats (channel_id, model_name, hour, tokens, request_count, quota, error_count, avg_latency)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO stats (
+                    channel_id, model_name, hour,
+                    prompt_tokens, completion_tokens, cache_hit_tokens, tokens,
+                    request_count, quota, error_count, avg_latency
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, model_name, hour)
                 DO UPDATE SET
+                    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+                    completion_tokens = completion_tokens + excluded.completion_tokens,
+                    cache_hit_tokens = cache_hit_tokens + excluded.cache_hit_tokens,
                     tokens = tokens + excluded.tokens,
                     request_count = request_count + excluded.request_count,
                     quota = quota + excluded.quota,
@@ -160,12 +122,14 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                 const modelName = log.modelName || '';
                 const tokenId = log.tokenId || 0;
                 const userGroup = log.group || '';
-                const promptTokens = log.promptTokens || 0;
-                const completionTokens = log.completionTokens || 0;
-                const totalTokens = promptTokens + completionTokens;
+                const {
+                    promptTokens,
+                    completionTokens,
+                    cacheHitTokens,
+                    tokens: totalTokens
+                } = metricsFromLog(log);
                 const quota = log.quota || 0;
                 const latency = log.useTime || 0;
-                const cacheHitTokens = parseCacheHitTokens(log.other);
                 const errorCount = log.type === LOG_TYPE_ERROR ? 1 : 0;
 
                 if (includeStats) {
@@ -175,6 +139,9 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             channelId,
                             modelName,
                             hour,
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            cacheHitTokens: 0,
                             tokens: 0,
                             requestCount: 0,
                             quota: 0,
@@ -183,6 +150,9 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         };
                     }
                     const statsAgg = statsAggregated[statsKey];
+                    statsAgg.promptTokens += promptTokens;
+                    statsAgg.completionTokens += completionTokens;
+                    statsAgg.cacheHitTokens += cacheHitTokens;
                     statsAgg.tokens += totalTokens;
                     statsAgg.requestCount++;
                     statsAgg.quota += quota;
@@ -228,6 +198,9 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.channelId,
                         agg.modelName,
                         agg.hour,
+                        agg.promptTokens,
+                        agg.completionTokens,
+                        agg.cacheHitTokens,
                         agg.tokens,
                         agg.requestCount,
                         agg.quota,

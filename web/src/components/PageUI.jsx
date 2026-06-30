@@ -109,15 +109,16 @@ export const TimeRangeTabs = ({ value, onChange, options, activeClassName = 'bg-
     </div>
 );
 
-export const StatCard = ({ icon: Icon, iconWrapperClassName = 'bg-slate-100', iconClassName = 'text-slate-600', value, label, valueClassName = 'text-slate-800', cardClassName = '' }) => (
+export const StatCard = ({ icon: Icon, iconWrapperClassName = 'bg-slate-100', iconClassName = 'text-slate-600', value, label, hint, valueClassName = 'text-slate-800', cardClassName = '' }) => (
     <div className={`bg-white p-5 rounded-xl border shadow-sm ${cardClassName}`}>
         <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${iconWrapperClassName}`}>
                 {Icon ? <Icon className={iconClassName} size={24} /> : null}
             </div>
-            <div>
+            <div className="min-w-0">
                 <div className={`text-3xl font-bold ${valueClassName}`}>{value}</div>
-                <div className="text-slate-500 text-sm whitespace-nowrap">{label}</div>
+                <div className="text-slate-500 text-sm">{label}</div>
+                {hint ? <div className="text-xs text-slate-400 mt-0.5">{hint}</div> : null}
             </div>
         </div>
     </div>

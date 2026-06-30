@@ -22,6 +22,9 @@ import {
     Coins,
     DollarSign,
     Gauge,
+    Upload,
+    Download,
+    Database,
     ArrowRight,
     Cpu,
     Server,
@@ -108,14 +111,6 @@ const Dashboard = () => {
             valueClassName: 'text-cyan-600',
         },
         {
-            label: '总 Token',
-            value: formatCompactNumber(summary.total_tokens || 0),
-            icon: Coins,
-            iconWrapperClassName: 'bg-violet-100',
-            iconClassName: 'text-violet-600',
-            valueClassName: 'text-violet-600',
-        },
-        {
             label: '总费用',
             value: formatCurrency(summary.total_cost || 0),
             icon: DollarSign,
@@ -146,6 +141,52 @@ const Dashboard = () => {
             iconWrapperClassName: 'bg-rose-100',
             iconClassName: 'text-rose-600',
             valueClassName: 'text-rose-600',
+        },
+    ];
+
+    const tokenCards = [
+        {
+            label: '净输入 Token',
+            hint: 'prompt − 缓存读取',
+            value: formatCompactNumber(summary.net_input_tokens || 0),
+            icon: Upload,
+            iconWrapperClassName: 'bg-blue-100',
+            iconClassName: 'text-blue-600',
+            valueClassName: 'text-blue-600',
+        },
+        {
+            label: '输出 Token',
+            value: formatCompactNumber(summary.total_completion_tokens || 0),
+            icon: Download,
+            iconWrapperClassName: 'bg-violet-100',
+            iconClassName: 'text-violet-600',
+            valueClassName: 'text-violet-600',
+        },
+        {
+            label: '缓存读取',
+            value: formatCompactNumber(summary.total_cache_hit_tokens || 0),
+            icon: Database,
+            iconWrapperClassName: 'bg-amber-100',
+            iconClassName: 'text-amber-600',
+            valueClassName: 'text-amber-600',
+        },
+        {
+            label: '吞吐总计',
+            hint: '净输入 + 输出 + 缓存',
+            value: formatCompactNumber(summary.throughput_total || 0),
+            icon: Coins,
+            iconWrapperClassName: 'bg-cyan-100',
+            iconClassName: 'text-cyan-600',
+            valueClassName: 'text-cyan-600',
+        },
+        {
+            label: '日志总计',
+            hint: 'prompt + completion',
+            value: formatCompactNumber(summary.total_tokens || 0),
+            icon: Coins,
+            iconWrapperClassName: 'bg-slate-100',
+            iconClassName: 'text-slate-600',
+            valueClassName: 'text-slate-700',
         },
     ];
 
@@ -181,6 +222,23 @@ const Dashboard = () => {
                             />
                         ))}
                     </div>
+
+                    <PanelCard title="Token 统计" description="分项展示输入、输出与缓存；同时保留两种总计口径便于对照">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 p-4">
+                            {tokenCards.map((card) => (
+                                <StatCard
+                                    key={card.label}
+                                    icon={card.icon}
+                                    iconWrapperClassName={card.iconWrapperClassName}
+                                    iconClassName={card.iconClassName}
+                                    value={card.value}
+                                    label={card.label}
+                                    hint={card.hint}
+                                    valueClassName={card.valueClassName}
+                                />
+                            ))}
+                        </div>
+                    </PanelCard>
 
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
                         <PanelCard

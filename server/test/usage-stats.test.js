@@ -238,14 +238,14 @@ test('getModelStatus uses log data for sub-hour windows', async () => {
 test('getModelStatus uses hourly stats data for 24h windows', async () => {
     const now = 1710086400;
     await db.runAsync(
-        `INSERT INTO stats (channel_id, model_name, hour, tokens, request_count, quota, error_count, avg_latency)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [7, 'claude-hourly-test', 1710000000, 1000, 4, 2000, 1, 800]
+        `INSERT INTO stats (channel_id, model_name, hour, prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [7, 'claude-hourly-test', 1710000000, 800, 200, 0, 1000, 4, 2000, 1, 800]
     );
     await db.runAsync(
-        `INSERT INTO stats (channel_id, model_name, hour, tokens, request_count, quota, error_count, avg_latency)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [8, 'claude-hourly-test', 1710000000, 1000, 9, 2000, 9, 800]
+        `INSERT INTO stats (channel_id, model_name, hour, prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [8, 'claude-hourly-test', 1710000000, 800, 200, 0, 1000, 9, 2000, 9, 800]
     );
 
     const status = await withFakeNow(now, () => getModelStatus('claude-hourly-test', '24h', 7));

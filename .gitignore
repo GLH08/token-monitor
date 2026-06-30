@@ -17,8 +17,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Environment (if not already tracked)
-# .env
+# Environment
+.env
+server/.env
 
 # Node modules (if running locally)
 node_modules/

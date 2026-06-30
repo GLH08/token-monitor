@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Cpu, TrendingUp, Zap, DollarSign, Filter, HeartPulse } from 'lucide-react';
+import { Cpu, TrendingUp, Zap, DollarSign, Filter, HeartPulse, Upload, Download, Database, Coins } from 'lucide-react';
 import { EmptyState, FilterBar, PageHeader, PanelCard, StatCard, MODEL_ANALYSIS_TIME_RANGE_OPTIONS, TimeRangeTabs, mapAnalysisWindowToStatusWindow, getSupportedWindow, updateUrlSearchParams, buildPathWithQuery, ChannelSelect } from './components/PageUI';
 import { useChannels } from './hooks/useChannels';
 import { useModelsAnalysis } from './hooks/useModelsAnalysis';
@@ -24,7 +24,13 @@ const Models = () => {
 
     // 计算最大值用于进度条
     const maxRequests = Math.max(...(data.models.map(m => m.requests) || [1]), 1);
-    const maxTokens = Math.max(...(data.models.map(m => m.tokens) || [1]), 1);
+    const maxThroughput = Math.max(...(data.models.map(m => m.throughput_total || m.tokens) || [1]), 1);
+    const formatTokenCompact = (value) => {
+        const amount = value || 0;
+        if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
+        if (amount >= 1000) return `${(amount / 1000).toFixed(0)}K`;
+        return amount.toLocaleString();
+    };
     const statusWindow = mapAnalysisWindowToStatusWindow(period);
     const buildStatusLink = (modelName) => buildPathWithQuery('/model-status', {
         model: modelName,
@@ -69,7 +75,7 @@ const Models = () => {
                 />
             </FilterBar>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
                 <StatCard
                     icon={Cpu}
                     iconWrapperClassName="bg-purple-100"
@@ -86,12 +92,21 @@ const Models = () => {
                     valueClassName="text-blue-600"
                 />
                 <StatCard
-                    icon={Zap}
-                    iconWrapperClassName="bg-amber-100"
-                    iconClassName="text-amber-600"
-                    value={`${((data.summary.totalTokens || 0) / 1000000).toFixed(2)}M`}
-                    label="总 Token"
-                    valueClassName="text-amber-600"
+                    icon={Coins}
+                    iconWrapperClassName="bg-cyan-100"
+                    iconClassName="text-cyan-600"
+                    value={formatTokenCompact(data.summary.throughputTotal)}
+                    label="吞吐总计"
+                    hint="净输入 + 输出 + 缓存"
+                    valueClassName="text-cyan-600"
+                />
+                <StatCard
+                    icon={Coins}
+                    iconWrapperClassName="bg-slate-100"
+                    iconClassName="text-slate-600"
+                    value={formatTokenCompact(data.summary.totalTokens)}
+                    label="日志总计"
+                    hint="prompt + completion"
                 />
                 <StatCard
                     icon={DollarSign}
@@ -102,6 +117,14 @@ const Models = () => {
                     valueClassName="text-green-600"
                 />
             </div>
+
+            <PanelCard title="Token 分项汇总" bodyClassName="p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <StatCard icon={Upload} iconWrapperClassName="bg-blue-100" iconClassName="text-blue-600" value={formatTokenCompact(data.summary.netInputTokens)} label="净输入" hint="prompt − 缓存" valueClassName="text-blue-600" />
+                    <StatCard icon={Download} iconWrapperClassName="bg-violet-100" iconClassName="text-violet-600" value={formatTokenCompact(data.summary.totalCompletionTokens)} label="输出" valueClassName="text-violet-600" />
+                    <StatCard icon={Database} iconWrapperClassName="bg-amber-100" iconClassName="text-amber-600" value={formatTokenCompact(data.summary.totalCacheHitTokens)} label="缓存读取" valueClassName="text-amber-600" />
+                </div>
+            </PanelCard>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <PanelCard title="请求量 Top 10" bodyClassName="p-6">
@@ -136,7 +159,7 @@ const Models = () => {
                     </div>
                 </PanelCard>
 
-                <PanelCard title="Token 消耗 Top 10" bodyClassName="p-6">
+                <PanelCard title="吞吐总计 Top 10" bodyClassName="p-6">
                     <div className="space-y-3">
                         {loading ? (
                             [...Array(5)].map((_, i) => (
@@ -153,15 +176,14 @@ const Models = () => {
                                         {m.model_name}
                                     </span>
                                     <span className="text-sm font-mono text-slate-500">
-                                        {m.tokens >= 1000000 ? `${(m.tokens / 1000000).toFixed(1)}M` :
-                                            m.tokens >= 1000 ? `${(m.tokens / 1000).toFixed(0)}K` : m.tokens}
+                                        {formatTokenCompact(m.throughput_total || m.tokens)}
                                     </span>
                                 </div>
                                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                     <div
                                         className="h-full rounded-full transition-all duration-500"
                                         style={{
-                                            width: `${(m.tokens / maxTokens) * 100}%`,
+                                            width: `${((m.throughput_total || m.tokens) / maxThroughput) * 100}%`,
                                             backgroundColor: COLORS[(i + 3) % COLORS.length]
                                         }}
                                     />
@@ -179,7 +201,11 @@ const Models = () => {
                             <tr>
                                 <th className="px-4 py-3 text-left font-semibold text-slate-600">模型</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">请求数</th>
-                                <th className="px-4 py-3 text-right font-semibold text-slate-600">Token</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">净输入</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">输出</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">缓存</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">吞吐总计</th>
+                                <th className="px-4 py-3 text-right font-semibold text-slate-600">日志总计</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">费用</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">错误率</th>
                                 <th className="px-4 py-3 text-right font-semibold text-slate-600">平均延迟</th>
@@ -201,7 +227,7 @@ const Models = () => {
                                 ))
                             ) : data.models.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7}>
+                                    <td colSpan={11}>
                                         <EmptyState icon={Cpu} title="暂无模型数据" />
                                     </td>
                                 </tr>
@@ -211,7 +237,11 @@ const Models = () => {
                                         <div className="font-medium text-slate-800">{m.model_name}</div>
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono">{m.requests.toLocaleString()}</td>
-                                    <td className="px-4 py-3 text-right font-mono">{m.tokens.toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(m.net_input_tokens || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(m.completion_tokens || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(m.cache_hit_tokens || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(m.throughput_total || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-3 text-right font-mono">{(m.tokens || 0).toLocaleString()}</td>
                                     <td className="px-4 py-3 text-right font-mono text-green-600">${m.cost.toFixed(4)}</td>
                                     <td className="px-4 py-3 text-right">
                                         <span className={`px-2 py-0.5 rounded text-xs font-bold ${parseFloat(m.errorRate) > 5 ? 'bg-red-100 text-red-700' : parseFloat(m.errorRate) > 1 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
