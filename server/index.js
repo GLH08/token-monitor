@@ -1,15 +1,15 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const http = require('http');
 const WebSocket = require('ws');
 const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-require('dotenv').config();
 
 const app = express();
 app.use(cors());
