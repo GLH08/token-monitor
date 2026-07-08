@@ -13,7 +13,7 @@ model Log {
   id               Int      @id @default(autoincrement())
   userId           Int      @map("user_id")
   createdAt        BigInt   @map("created_at")
-  type             Int      // 1=充值, 2=消费, 3=管理, 4=系统, 5=错误, 6=退款
+  type             Int      // 0=未知, 1=充值, 2=消费, 3=管理, 4=系统, 5=错误, 6=退款, 7=登录
   content          String   @db.Text
   username         String?  @default("")
   promptTokens     Int      @map("prompt_tokens")
@@ -23,11 +23,12 @@ model Log {
   quota            Int
   channelId        Int      @map("channel_id")
   tokenId          Int      @map("token_id")
-  useTime          Int      @map("use_time") // 响应时间(ms)
+  useTime          Int      @map("use_time") // 响应时间(秒)
   isStream         Boolean  @map("is_stream")
   group            String?
   ip               String?  @default("")
   requestId        String?  @map("request_id") @default("")
+  upstreamRequestId String? @map("upstream_request_id")
   other            String?  @db.Text // JSON: 包含倍率、缓存等详细信息
 
   @@map("logs")
@@ -122,24 +123,29 @@ model Model {
 
 // ==================== New API 供应商表 ====================
 model Vendor {
-  id          Int     @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   name        String
-  description String? @db.Text
-  icon        String? @db.VarChar(128)
+  description String?   @db.Text
+  icon        String?   @db.VarChar(128)
+  status      Int       @default(1)
+  createdTime BigInt?   @map("created_time")
+  updatedTime BigInt?   @map("updated_time")
+  deletedAt   DateTime? @map("deleted_at")
 
   @@map("vendors")
 }
 
 // ==================== New API 用户表 ====================
 model User {
-  id          Int     @id @default(autoincrement())
-  username    String  @unique
-  displayName String? @map("display_name")
-  role        Int     @default(1)
-  status      Int     @default(1)
-  quota       Int     @default(0)
-  usedQuota   Int     @map("used_quota") @default(0)
-  group       String? @default("default")
+  id          Int       @id @default(autoincrement())
+  username    String    @unique
+  displayName String?   @map("display_name")
+  role        Int       @default(1)
+  status      Int       @default(1)
+  quota       Int       @default(0)
+  usedQuota   Int       @map("used_quota") @default(0)
+  group       String?   @default("default")
+  deletedAt   DateTime? @map("deleted_at")
 
   @@map("users")
 }

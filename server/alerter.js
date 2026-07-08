@@ -164,7 +164,8 @@ async function checkQuotaLow(threshold) {
             where: {
                 unlimitedQuota: false,
                 remainQuota: { lt: threshold },
-                status: 1
+                status: 1,
+                deletedAt: null
             },
             select: { id: true, name: true, remainQuota: true }
         });
