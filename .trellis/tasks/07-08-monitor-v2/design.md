@@ -75,11 +75,10 @@ Additive columns on `stats` and `usage_stats` (via the established `PRAGMA table
 Notes:
 - **Cost is derived, not stored redundantly**: `cost = quota / QUOTA_PER_UNIT`
   (`QUOTA_PER_UNIT=500000=$1`); currency/token display handled at the API/UI layer.
-- **New dimension `user_id`**: `usage_stats` currently keys on `user_group` but has no
-  `user_id`. Add `user_id` (and carry `username` via enrichment) to enable per-user
-  breakdown. This changes the `usage_stats` PRIMARY KEY → requires a table rebuild/backfill
-  (documented in C2 implement.md; the rebuild-stats admin path already exists —
-  `routes/admin.js` `/rebuild-stats`).
+- **New dimension `user_id` (derived, no migration)**: `usage_stats` already keys on
+  `token_id`, and each token maps to one user, so per-user breakdown is derived at query
+  time (`token_id → tokens.user_id` via Prisma, then regroup in JS). No PK change / table
+  rebuild — keeps C2 fully additive.
 - `node_name` (multi-instance) is **out of scope v2** (single-node deployment) — revisit if needed.
 
 ## 4. API surface (contracts)
@@ -168,8 +167,8 @@ Parent owns final **integration review** (R4: non-regression of auth/alerts/depl
   aggregation + backfill foundation; rewriting risks regressions for little gain.
 - **Derive latency/success from `logs` vs ingest `perf_metrics`**: derive (chosen) —
   one data source, no dependency on optional rollups; slightly more compute at sync time.
-- **`usage_stats` PK change (add `user_id`)**: enables per-user cost but forces a
-  table rebuild/backfill — the one non-additive migration; gated + resumable.
+- **Per-user is derived from `token_id`** (token→user is many-to-one) → no `usage_stats`
+  migration; all C2 schema changes stay additive/reversible.
 - **`other` JSON variance**: keys differ by provider/path (Anthropic vs OpenAI vs audio/ws).
   Mitigation: tolerant multi-key extraction (as `parseCacheHitTokens` already does) + unit
   tests over real `other` samples (node:test, per backend spec).
