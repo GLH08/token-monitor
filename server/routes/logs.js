@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { prisma, parseCacheHitTokens } = require('../syncer');
+const { prisma } = require('../syncer');
+const { metricsFromLog } = require('../tokenMetrics');
 const {
     parseTimeRange,
     parseOptionalId,
@@ -74,6 +75,9 @@ router.get('/logs', async (req, res) => {
         if (channelId !== null) where.channelId = channelId;
         if (req.query.model_name) where.modelName = req.query.model_name;
         applyRequestIdFilter(where, req.query.request_id);
+        if (req.query.upstream_request_id) {
+            where.upstreamRequestId = { contains: String(req.query.upstream_request_id).trim() };
+        }
         if (timeRange.startTs !== null || timeRange.endTs !== null) {
             where.createdAt = {};
             if (timeRange.startTs !== null) where.createdAt.gte = timeRange.startTs;
@@ -88,10 +92,11 @@ router.get('/logs', async (req, res) => {
                 take: pagination.take,
                 orderBy: { createdAt: 'desc' },
                 select: {
-                    id: true, createdAt: true, channelId: true, modelName: true,
+                    id: true, createdAt: true, type: true, username: true,
+                    channelId: true, modelName: true,
                     tokenId: true, tokenName: true, group: true,
                     useTime: true, promptTokens: true, completionTokens: true, quota: true, content: true, other: true,
-                    ip: true, requestId: true
+                    ip: true, requestId: true, upstreamRequestId: true, isStream: true
                 }
             }),
             prisma.log.aggregate({
@@ -105,17 +110,34 @@ router.get('/logs', async (req, res) => {
                 const inputTokens = l.promptTokens || 0;
                 const outputTokens = l.completionTokens || 0;
                 const billingQuota = l.quota || 0;
+                const m = metricsFromLog(l);
+                const requestId = extractRequestId(l.requestId, l.content, l.other);
+                const useTimeSec = m.useTimeSec || 0;
                 return {
                     ...l,
                     createdAt: l.createdAt.toString(),
-                    requestId: extractRequestId(l.requestId, l.content, l.other),
-                    request_id: extractRequestId(l.requestId, l.content, l.other),
+                    requestId,
+                    request_id: requestId,
+                    upstream_request_id: l.upstreamRequestId || '',
                     inputTokens,
                     outputTokens,
-                    cacheHitTokens: parseCacheHitTokens(l.other),
+                    cacheHitTokens: m.cacheHitTokens,
+                    cache_read_tokens: m.cacheHitTokens,
+                    cache_write_tokens: m.cacheCreationTokens,
+                    image_tokens: m.imageTokens,
+                    audio_tokens: m.audioInputTokens + m.audioOutputTokens,
+                    audio_input_tokens: m.audioInputTokens,
+                    audio_output_tokens: m.audioOutputTokens,
                     totalTokens: inputTokens + outputTokens,
                     billingQuota,
-                    cost: billingQuota / QUOTA_PER_UNIT
+                    cost: billingQuota / QUOTA_PER_UNIT,
+                    cost_usd: billingQuota / QUOTA_PER_UNIT,
+                    frt_ms: m.frtMs,
+                    use_time_sec: useTimeSec,
+                    tps: useTimeSec > 0 ? Number((m.tokens / useTimeSec).toFixed(2)) : 0,
+                    ratios: m.ratios,
+                    billing_source: m.billingSource,
+                    is_stream: l.isStream
                 };
             }),
             total, page: pagination.page, pageSize: pagination.pageSize,

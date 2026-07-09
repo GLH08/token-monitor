@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
-const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill } = require('./syncer');
+const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, stepExtendedMetricsBackfill } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
@@ -171,11 +171,23 @@ server.listen(PORT, () => {
         })
         .catch((error) => console.error('[SYNC] usage_stats backfill error:', error));
 
+    // Capture the extended-backfill boundary (id <= last_synced_id) and run the
+    // first batch before syncing new logs, so the historical range never
+    // overlaps with freshly synced logs. Subsequent batches run after each sync.
+    const extendedBackfillReady = stepExtendedMetricsBackfill()
+        .then((result) => {
+            if (!result.skipped) {
+                console.log(`[SYNC] Extended backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
+            }
+        })
+        .catch((error) => console.error('[SYNC] extended backfill error:', error));
+
     // 日志同步 (每5秒) + 延迟监控
     setInterval(async () => {
         const start = Date.now();
         try {
             await usageBackfillReady;
+            await extendedBackfillReady;
             const result = await syncLogs();
             syncMetrics.lastSyncTime = new Date().toISOString();
             syncMetrics.lastSyncDuration = Date.now() - start;
@@ -184,6 +196,10 @@ server.listen(PORT, () => {
             if (result.processedLogs > 0) {
                 console.log(`[SYNC] Processed ${result.processedLogs} logs in ${result.processedBatches} batch(es), backlog=${result.estimatedBacklog}`);
             }
+            // Continue the resumable extended-metrics backfill (bounded per run).
+            await stepExtendedMetricsBackfill().catch((error) => {
+                console.error('[SYNC] Extended backfill step error:', error);
+            });
         } catch (e) {
             syncMetrics.lastError = e.message;
         }

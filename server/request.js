@@ -142,11 +142,11 @@ function requirePasswordLogin(body) {
 }
 
 function parseUsageDimension(value, defaultValue = 'model') {
-    return parseWindow(value, ['group', 'channel', 'model', 'token'], defaultValue);
+    return parseWindow(value, ['group', 'channel', 'model', 'token', 'user'], defaultValue);
 }
 
 function parseUsageMetric(value, defaultValue = 'cost') {
-    return parseWindow(value, ['cost', 'tokens', 'requests', 'quota'], defaultValue);
+    return parseWindow(value, ['cost', 'tokens', 'requests', 'quota', 'cache_hit_ratio', 'image_tokens', 'audio_tokens', 'success_rate', 'avg_latency_ms', 'avg_ttft_ms', 'tps'], defaultValue);
 }
 
 function parseUsageSplit(value, defaultValue = 'none') {

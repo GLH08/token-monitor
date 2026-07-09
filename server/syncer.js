@@ -10,6 +10,13 @@ const LOG_TYPE_CONSUME = 2;
 const LOG_TYPE_ERROR = 5;
 const USAGE_STATS_BACKFILL_KEY = 'usage_stats_backfilled_v1';
 const USAGE_STATS_CACHE_HIT_BACKFILL_KEY = 'usage_stats_cache_hit_backfilled_v2';
+// C2 extended-metrics backfill: repopulates the new other-derived columns from
+// historical logs (id <= the upgrade-time last_synced_id). Resumable: progress
+// is persisted per batch so a kill/restart continues. Bounded per run by
+// SYNC_MAX_BATCHES_PER_RUN.
+const EXTENDED_BACKFILL_END_KEY = 'extended_backfill_end_id_v1';
+const EXTENDED_BACKFILL_PROGRESS_KEY = 'extended_backfill_progress_id_v1';
+const EXTENDED_BACKFILL_DONE_KEY = 'extended_backfill_done_v1';
 
 const syncState = {
     lastFetchedCount: 0,
@@ -62,6 +69,40 @@ async function updateUsageStats(logs) {
     return updateAggregates(logs, { includeStats: false, includeUsageStats: true });
 }
 
+// Extended metric accumulator (C2). These are sums per hourly bucket; averages
+// and rates (avg latency, TTFT, TPS, success-rate) are derived at query time.
+// - success_count: consume rows (type 2); error_count already covers type 5.
+// - first_token_*: TTFT from other.frt (ms), only counted when frtMs > 0
+//   (streaming). We do not store a redundant latency_ms_sum; use_time_sum_sec
+//   carries whole-request seconds for throughput/avg-latency derivation.
+function newExtendedAgg() {
+    return {
+        cacheCreationTokens: 0,
+        imageTokens: 0,
+        audioTokens: 0,
+        reasoningRequests: 0,
+        toolCalls: 0,
+        toolQuota: 0,
+        successCount: 0,
+        firstTokenMsSum: 0,
+        firstTokenCount: 0,
+        useTimeSumSec: 0
+    };
+}
+
+function accumulateExtended(agg, metrics, log) {
+    agg.cacheCreationTokens += metrics.cacheCreationTokens;
+    agg.imageTokens += metrics.imageTokens;
+    agg.audioTokens += metrics.audioInputTokens + metrics.audioOutputTokens;
+    agg.reasoningRequests += metrics.reasoning ? 1 : 0;
+    agg.toolCalls += metrics.toolCalls;
+    agg.toolQuota += metrics.toolQuota;
+    agg.successCount += log.type === LOG_TYPE_CONSUME ? 1 : 0;
+    agg.firstTokenMsSum += metrics.frtMs > 0 ? metrics.frtMs : 0;
+    agg.firstTokenCount += metrics.frtMs > 0 ? 1 : 0;
+    agg.useTimeSumSec += metrics.useTimeSec;
+}
+
 async function updateAggregates(logs, { includeStats, includeUsageStats }) {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
@@ -71,9 +112,12 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                 INSERT INTO stats (
                     channel_id, model_name, hour,
                     prompt_tokens, completion_tokens, cache_hit_tokens, tokens,
-                    request_count, quota, error_count, avg_latency
+                    request_count, quota, error_count, avg_latency,
+                    cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
+                    tool_calls, tool_quota, success_count,
+                    first_token_ms_sum, first_token_count, use_time_sum_sec
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, model_name, hour)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -87,15 +131,28 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         WHEN request_count + excluded.request_count > 0
                         THEN (avg_latency * request_count + excluded.avg_latency * excluded.request_count) / (request_count + excluded.request_count)
                         ELSE 0
-                    END
+                    END,
+                    cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+                    image_tokens = image_tokens + excluded.image_tokens,
+                    audio_tokens = audio_tokens + excluded.audio_tokens,
+                    reasoning_requests = reasoning_requests + excluded.reasoning_requests,
+                    tool_calls = tool_calls + excluded.tool_calls,
+                    tool_quota = tool_quota + excluded.tool_quota,
+                    success_count = success_count + excluded.success_count,
+                    first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
+                    first_token_count = first_token_count + excluded.first_token_count,
+                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec
             `) : null;
 
             const usageStmt = includeUsageStats ? db.prepare(`
                 INSERT INTO usage_stats (
                     hour, user_group, channel_id, model_name, token_id,
-                    prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency
+                    prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
+                    cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
+                    tool_calls, tool_quota, success_count,
+                    first_token_ms_sum, first_token_count, use_time_sum_sec
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(hour, user_group, channel_id, model_name, token_id)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -109,7 +166,17 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         WHEN request_count + excluded.request_count > 0
                         THEN (avg_latency * request_count + excluded.avg_latency * excluded.request_count) / (request_count + excluded.request_count)
                         ELSE 0
-                    END
+                    END,
+                    cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+                    image_tokens = image_tokens + excluded.image_tokens,
+                    audio_tokens = audio_tokens + excluded.audio_tokens,
+                    reasoning_requests = reasoning_requests + excluded.reasoning_requests,
+                    tool_calls = tool_calls + excluded.tool_calls,
+                    tool_quota = tool_quota + excluded.tool_quota,
+                    success_count = success_count + excluded.success_count,
+                    first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
+                    first_token_count = first_token_count + excluded.first_token_count,
+                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec
             `) : null;
 
             const statsAggregated = {};
@@ -122,12 +189,13 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                 const modelName = log.modelName || '';
                 const tokenId = log.tokenId || 0;
                 const userGroup = log.group || '';
+                const metrics = metricsFromLog(log);
                 const {
                     promptTokens,
                     completionTokens,
                     cacheHitTokens,
                     tokens: totalTokens
-                } = metricsFromLog(log);
+                } = metrics;
                 const quota = log.quota || 0;
                 const latency = log.useTime || 0;
                 const errorCount = log.type === LOG_TYPE_ERROR ? 1 : 0;
@@ -146,7 +214,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             requestCount: 0,
                             quota: 0,
                             errorCount: 0,
-                            latencySum: 0
+                            latencySum: 0,
+                            ...newExtendedAgg()
                         };
                     }
                     const statsAgg = statsAggregated[statsKey];
@@ -158,6 +227,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     statsAgg.quota += quota;
                     statsAgg.errorCount += errorCount;
                     statsAgg.latencySum += latency;
+                    accumulateExtended(statsAgg, metrics, log);
                 }
 
                 if (includeUsageStats) {
@@ -176,7 +246,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             requestCount: 0,
                             quota: 0,
                             errorCount: 0,
-                            latencySum: 0
+                            latencySum: 0,
+                            ...newExtendedAgg()
                         };
                     }
                     const usageAgg = usageAggregated[usageKey];
@@ -188,6 +259,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     usageAgg.quota += quota;
                     usageAgg.errorCount += errorCount;
                     usageAgg.latencySum += latency;
+                    accumulateExtended(usageAgg, metrics, log);
                 }
             });
 
@@ -205,7 +277,17 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.requestCount,
                         agg.quota,
                         agg.errorCount,
-                        avgLatency
+                        avgLatency,
+                        agg.cacheCreationTokens,
+                        agg.imageTokens,
+                        agg.audioTokens,
+                        agg.reasoningRequests,
+                        agg.toolCalls,
+                        agg.toolQuota,
+                        agg.successCount,
+                        agg.firstTokenMsSum,
+                        agg.firstTokenCount,
+                        agg.useTimeSumSec
                     );
                 });
             }
@@ -226,7 +308,17 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.requestCount,
                         agg.quota,
                         agg.errorCount,
-                        avgLatency
+                        avgLatency,
+                        agg.cacheCreationTokens,
+                        agg.imageTokens,
+                        agg.audioTokens,
+                        agg.reasoningRequests,
+                        agg.toolCalls,
+                        agg.toolQuota,
+                        agg.successCount,
+                        agg.firstTokenMsSum,
+                        agg.firstTokenCount,
+                        agg.useTimeSumSec
                     );
                 });
             }
@@ -500,6 +592,154 @@ async function ensureUsageStatsBackfill() {
     return result;
 }
 
+// Backfill helper: re-derive the extended metrics from a batch of historical
+// logs and ADD them onto existing stats/usage_stats rows. UPDATE-only (no
+// INSERT) so missing buckets are left untouched rather than created as
+// partial rows. Each log is processed exactly once across runs thanks to the
+// persisted progress id, so the additive UPDATE never double-counts.
+function updateExtendedMetrics(logs) {
+    const statsAgg = {};
+    const usageAgg = {};
+
+    logs.forEach(log => {
+        const timestamp = Number(log.createdAt);
+        const hour = Math.floor(timestamp / 3600) * 3600;
+        const channelId = log.channelId || 0;
+        const modelName = log.modelName || '';
+        const tokenId = log.tokenId || 0;
+        const userGroup = log.group || '';
+        const metrics = metricsFromLog(log);
+
+        const statsKey = `${channelId}:${modelName}:${hour}`;
+        if (!statsAgg[statsKey]) {
+            statsAgg[statsKey] = { channelId, modelName, hour, ...newExtendedAgg() };
+        }
+        accumulateExtended(statsAgg[statsKey], metrics, log);
+
+        const usageKey = `${hour}:${userGroup}:${channelId}:${modelName}:${tokenId}`;
+        if (!usageAgg[usageKey]) {
+            usageAgg[usageKey] = { hour, userGroup, channelId, modelName, tokenId, ...newExtendedAgg() };
+        }
+        accumulateExtended(usageAgg[usageKey], metrics, log);
+    });
+
+    const extendedSetClause = `
+        cache_creation_tokens = cache_creation_tokens + ?,
+        image_tokens = image_tokens + ?,
+        audio_tokens = audio_tokens + ?,
+        reasoning_requests = reasoning_requests + ?,
+        tool_calls = tool_calls + ?,
+        tool_quota = tool_quota + ?,
+        success_count = success_count + ?,
+        first_token_ms_sum = first_token_ms_sum + ?,
+        first_token_count = first_token_count + ?,
+        use_time_sum_sec = use_time_sum_sec + ?`;
+
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+
+            const statsStmt = db.prepare(`UPDATE stats SET ${extendedSetClause}
+                WHERE channel_id = ? AND model_name = ? AND hour = ?`);
+            Object.values(statsAgg).forEach(agg => {
+                statsStmt.run(
+                    agg.cacheCreationTokens, agg.imageTokens, agg.audioTokens,
+                    agg.reasoningRequests, agg.toolCalls, agg.toolQuota,
+                    agg.successCount, agg.firstTokenMsSum, agg.firstTokenCount, agg.useTimeSumSec,
+                    agg.channelId, agg.modelName, agg.hour
+                );
+            });
+            statsStmt.finalize();
+
+            const usageStmt = db.prepare(`UPDATE usage_stats SET ${extendedSetClause}
+                WHERE hour = ? AND user_group = ? AND channel_id = ? AND model_name = ? AND token_id = ?`);
+            Object.values(usageAgg).forEach(agg => {
+                usageStmt.run(
+                    agg.cacheCreationTokens, agg.imageTokens, agg.audioTokens,
+                    agg.reasoningRequests, agg.toolCalls, agg.toolQuota,
+                    agg.successCount, agg.firstTokenMsSum, agg.firstTokenCount, agg.useTimeSumSec,
+                    agg.hour, agg.userGroup, agg.channelId, agg.modelName, agg.tokenId
+                );
+            });
+            usageStmt.finalize();
+
+            db.run("COMMIT", (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    });
+}
+
+// Resumable, batch-bounded backfill of the extended metric columns from
+// historical logs.other. The old/new boundary (end_id) is captured from
+// last_synced_id on the first run; callers must invoke the first step before
+// syncing new logs so the ranges never overlap. Progress is persisted per
+// batch, so a kill/restart continues from where it left off.
+async function stepExtendedMetricsBackfill() {
+    const done = await getMeta(EXTENDED_BACKFILL_DONE_KEY);
+    if (done) {
+        return { skipped: true };
+    }
+
+    const lastIdStr = await getMeta('last_synced_id');
+    const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
+
+    let endIdStr = await getMeta(EXTENDED_BACKFILL_END_KEY);
+    if (!endIdStr) {
+        if (!lastSyncedId) {
+            await setMeta(EXTENDED_BACKFILL_DONE_KEY, new Date().toISOString());
+            return { skipped: true };
+        }
+        endIdStr = String(lastSyncedId);
+        await setMeta(EXTENDED_BACKFILL_END_KEY, endIdStr);
+        await setMeta(EXTENDED_BACKFILL_PROGRESS_KEY, '0');
+    }
+    const endId = parseInt(endIdStr, 10);
+
+    const progressStr = await getMeta(EXTENDED_BACKFILL_PROGRESS_KEY);
+    let progressId = progressStr ? parseInt(progressStr, 10) : 0;
+
+    if (progressId >= endId) {
+        await setMeta(EXTENDED_BACKFILL_DONE_KEY, new Date().toISOString());
+        return { skipped: true, completed: true };
+    }
+
+    let processedLogs = 0;
+    let processedBatches = 0;
+
+    while (processedBatches < MAX_BATCHES_PER_RUN) {
+        const logs = await prisma.log.findMany({
+            where: {
+                id: { gt: progressId, lte: endId },
+                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+            },
+            take: BATCH_SIZE,
+            orderBy: { id: 'asc' }
+        });
+
+        if (logs.length === 0) {
+            break;
+        }
+
+        processedBatches += 1;
+        processedLogs += logs.length;
+        console.log(`[BACKFILL-EXT] Batch ${processedBatches}: fetched ${logs.length} logs (id>${progressId}, <=${endId})`);
+
+        await updateExtendedMetrics(logs);
+
+        progressId = logs[logs.length - 1].id;
+        await setMeta(EXTENDED_BACKFILL_PROGRESS_KEY, progressId.toString());
+    }
+
+    const completed = progressId >= endId;
+    if (completed) {
+        await setMeta(EXTENDED_BACKFILL_DONE_KEY, new Date().toISOString());
+    }
+
+    return { processedLogs, processedBatches, progressId, endId, completed };
+}
+
 module.exports = {
     syncLogs,
     syncChannelSnapshots,
@@ -508,6 +748,7 @@ module.exports = {
     prisma,
     rebuildStatsForDateRange,
     ensureUsageStatsBackfill,
+    stepExtendedMetricsBackfill,
     parseCacheHitTokens,
     getRebuildHourRange,
     updateStats,

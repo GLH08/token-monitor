@@ -22,9 +22,10 @@ rebuilt UI (C3) can render them.
 - **R2.2 — SQLite metric columns**: add columns to `stats` and `usage_stats` per parent
   design §3, via the established `PRAGMA table_info` + `ALTER TABLE ADD COLUMN` guards in
   `server/db.js`.
-- **R2.3 — `user_id` dimension**: add `user_id` to `usage_stats` (and carry `username` via
-  enrichment). This changes the PK → **table rebuild + backfill** behind a resumable
-  `meta` flag (reuse the `USAGE_STATS_*_BACKFILL` pattern; the `/rebuild-stats` admin path exists).
+- **R2.3 — per-user dimension (derived, no migration)**: expose per-user cost/usage by
+  aggregating `usage_stats` on `token_id` and mapping `token_id → {user_id, username}` via a
+  Prisma `tokens` lookup, then regrouping by user in JS. No `usage_stats` PK change / table
+  rebuild — all schema changes in this task stay **additive**.
 - **R2.4 — latency/success rework**: response latency in **ms** from `other.frt`
   (fallback `use_time*1000`); TTFT sums; `success_count`; success-rate = 1 − error/req.
   This supersedes the seconds-based `avg_latency`.

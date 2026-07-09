@@ -30,6 +30,16 @@ function initDB() {
             quota INTEGER DEFAULT 0,
             error_count INTEGER DEFAULT 0,
             avg_latency INTEGER DEFAULT 0,
+            cache_creation_tokens INTEGER DEFAULT 0,
+            image_tokens INTEGER DEFAULT 0,
+            audio_tokens INTEGER DEFAULT 0,
+            reasoning_requests INTEGER DEFAULT 0,
+            tool_calls INTEGER DEFAULT 0,
+            tool_quota INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            first_token_ms_sum INTEGER DEFAULT 0,
+            first_token_count INTEGER DEFAULT 0,
+            use_time_sum_sec INTEGER DEFAULT 0,
             PRIMARY KEY (channel_id, model_name, hour)
         )`);
 
@@ -53,6 +63,16 @@ function initDB() {
             quota INTEGER DEFAULT 0,
             error_count INTEGER DEFAULT 0,
             avg_latency INTEGER DEFAULT 0,
+            cache_creation_tokens INTEGER DEFAULT 0,
+            image_tokens INTEGER DEFAULT 0,
+            audio_tokens INTEGER DEFAULT 0,
+            reasoning_requests INTEGER DEFAULT 0,
+            tool_calls INTEGER DEFAULT 0,
+            tool_quota INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            first_token_ms_sum INTEGER DEFAULT 0,
+            first_token_count INTEGER DEFAULT 0,
+            use_time_sum_sec INTEGER DEFAULT 0,
             PRIMARY KEY (hour, user_group, channel_id, model_name, token_id)
         )`);
 
@@ -68,6 +88,7 @@ function initDB() {
                 if (!columnNames.includes('cache_hit_tokens')) {
                     db.run("ALTER TABLE usage_stats ADD COLUMN cache_hit_tokens INTEGER DEFAULT 0");
                 }
+                addExtendedMetricColumns('usage_stats', columnNames);
             }
         });
 
@@ -159,8 +180,34 @@ function initDB() {
                 if (!columnNames.includes('avg_latency')) {
                     db.run("ALTER TABLE stats ADD COLUMN avg_latency INTEGER DEFAULT 0");
                 }
+                addExtendedMetricColumns('stats', columnNames);
             }
         });
+    });
+}
+
+// C2 extended metric columns (additive on both stats and usage_stats). Each is
+// a sum accumulated per hourly bucket; averages/rates are derived at query time.
+const EXTENDED_METRIC_COLUMNS = [
+    'cache_creation_tokens',
+    'image_tokens',
+    'audio_tokens',
+    'reasoning_requests',
+    'tool_calls',
+    'tool_quota',
+    'success_count',
+    'first_token_ms_sum',
+    'first_token_count',
+    'use_time_sum_sec'
+];
+
+// Idempotent ALTER TABLE guards so already-deployed SQLite files upgrade in
+// place (see database-guidelines: PRAGMA table_info + ALTER TABLE ADD COLUMN).
+function addExtendedMetricColumns(table, columnNames) {
+    EXTENDED_METRIC_COLUMNS.forEach(col => {
+        if (!columnNames.includes(col)) {
+            db.run(`ALTER TABLE ${table} ADD COLUMN ${col} INTEGER DEFAULT 0`);
+        }
     });
 }
 

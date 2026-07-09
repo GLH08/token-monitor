@@ -23,16 +23,28 @@ extractors are **tolerant multi-key** (see existing `parseCacheHitTokens`) and d
 
 Additive columns on **`stats`** and **`usage_stats`** (ALTER-guard pattern in `db.js`):
 `cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests, tool_calls,
-tool_quota, success_count, latency_ms_sum, first_token_ms_sum, first_token_count,
-use_time_sum_sec`. Averages are derived at query time (`latency_ms_sum/request_count`,
-`first_token_ms_sum/first_token_count`, `tps = tokens / use_time_sum_sec`).
+tool_quota, success_count, first_token_ms_sum, first_token_count, use_time_sum_sec`
+(all `INTEGER DEFAULT 0`). Averages are derived at query time
+(`first_token_ms_sum/first_token_count` = avg TTFT, `tps = tokens / use_time_sum_sec`,
+`success_rate = success_count / request_count`).
 
-**`usage_stats` `user_id` migration (the one non-additive change):**
-- New PK `(hour, user_group, channel_id, model_name, token_id, user_id)`.
-- Strategy: create `usage_stats_v2` with the new PK+columns, backfill from `logs` (re-aggregate),
-  then swap. Guard with `meta` flag `usage_stats_userid_migrated_v1`; resumable per
-  `SYNC_MAX_BATCHES_PER_RUN`. Existing `/rebuild-stats` (`routes/admin.js`) is the manual trigger.
-- Enrichment adds `username` from `users` (filtering `deleted_at IS NULL`, per C1).
+> **Revised vs original draft:** `latency_ms_sum` was dropped. `other.frt` is a
+> first-response / TTFT signal, not whole-request latency, so it feeds
+> `first_token_ms_sum` only; whole-request latency is recoverable from
+> `use_time_sum_sec` (seconds). The pre-existing `avg_latency` column is left
+> untouched (do not rely on it). `audio_tokens` stores the **sum** of audio input
+> + output tokens (the per-log struct keeps `audioInputTokens`/`audioOutputTokens`
+> separate for the logs detail view). `cache_creation_tokens` is extracted by
+> preferring new-api's normalized `cache_write_tokens` field, else
+> `max(cache_creation_tokens, _5m + _1h)` - the 5m/1h variants are a **split** of
+> the total, not additive (see `research/other-samples.md`).
+
+**Per-user dimension — derived, NO migration (revised).** `usage_stats` already keys on
+`token_id`, and every token belongs to exactly one user, so per-user breakdown is derived
+at query time: aggregate `usage_stats` by `token_id`, map `token_id → {user_id, username}`
+via a Prisma lookup on `tokens` (same pattern as the existing name enrichment), then
+re-group by `user_id` in JS. This keeps **all of C2 additive** (no `usage_stats` PK change,
+no table rebuild). Deleted tokens retain their mapping (historical enrichment retains names, per C1).
 
 ## 3. Cost / currency
 
@@ -68,6 +80,52 @@ GET /api/models/analysis        → per-model + success_rate, avg_latency_ms, av
 GET /api/channels/overview      → per-channel + error_rate, avg_latency_ms, used_quota, cost_usd, status, response_time, auto_ban
 ```
 
+### 4.1 Implementation notes (C2b, API layer)
+
+The §4 shapes are the target contract for C3. The implementation keeps each
+route file's **existing response envelope** (non-breaking) and adds fields;
+these deliberate deviations from the literal §4 sketch are reflected in
+`web/src/api/types.ts`:
+
+- **`/api/usage/breakdown`** keeps its **bare-array** envelope (`UsageRow[]`),
+  not `{ dimension, rows, totals }`. Totals are served by `/api/usage/summary`.
+  Each row gains `cost_usd`, `cache_creation_tokens`, `image_tokens`,
+  `audio_tokens`, `cache_hit_ratio`, `success_rate`, `avg_latency_ms`,
+  `avg_ttft_ms`, `tps`.
+- **`/api/usage/timeseries`** keeps the existing `{ split, series }` envelope
+  (`split`, not `dimension`) and the `interval=hour` granularity. `user` is a
+  **breakdown-only** dimension (per-hour per-user regroup is out of scope); the
+  `split` whitelist stays `none|group|channel|model|token`.
+- **Derived-metric ranking**: `metric` accepts the new ratio/average metrics
+  (`cache_hit_ratio`, `success_rate`, `avg_latency_ms`, `avg_ttft_ms`, `tps`).
+  For these the breakdown fetches all grouped rows and ranks in JS (a ratio of
+  sums can't be `ORDER BY`-ed in SQL); sum metrics keep SQL `ORDER BY ... LIMIT`.
+- **`success_rate`** = `1 - errors/requests` (PRD R2.4), which equals
+  `success_count/request_count` post-backfill but stays correct pre-backfill.
+  Returns `0` when there are no requests (consistent with the other derived
+  metrics, all `0` when there is no data). Ratios are `0..1` fractions.
+- **`/api/models/analysis`**: dropped `modelRatio`/`completionRatio` (read off
+  the `Model` table which has no such columns, always `undefined`) and the dead
+  `prisma.model.findMany` lookup. Ratios are per-log (`logs.other`) and are
+  exposed via `/api/logs`, not aggregated per model. Added `cost_usd`,
+  `error_rate`, and the extended-metric block to each model + `cache_hit_ratio`/
+  `success_rate`/`total_cost_usd` to the summary.
+- **`/api/channels/overview`** now takes a time range (defaults last 24h) to
+  derive `error_rate`/`avg_latency_ms` from `stats`; channel objects are enriched
+  additively (`id,name,type,status` preserved) and the response gains `timeRange`.
+  `response_time` is the channel's own test latency (ms); `avg_latency_ms` is the
+  request latency from `use_time` (sec->ms) - two distinct signals.
+- **`/api/summary`** adds `cost_usd`, `cache_hit_ratio`, `success_rate`,
+  `avg_latency_ms`, `avg_ttft_ms`, `tps`, and live trailing-60s `rpm`/`tpm`
+  (Prisma aggregate over `logs`, isolated so a Prisma hiccup can't fail the
+  summary). Existing `total_*` fields are kept.
+- **`/api/logs`** keeps the existing `{ data, total, page, pageSize, stats }`
+  envelope and camelCase fields; adds snake_case `other`-derived fields
+  (`cache_read_tokens`, `cache_write_tokens`, `image_tokens`, `audio_tokens`,
+  `frt_ms`, `use_time_sec`, `tps`, `ratios`, `billing_source`,
+  `upstream_request_id`, `is_stream`, `cost_usd`) via `metricsFromLog`, plus the
+  `upstream_request_id` query filter.
+
 ## 5. `types.ts`
 
 Hand-authored, mirrors §4. One interface per response + shared sub-types (`UsageRow`,
@@ -77,5 +135,5 @@ It is the **single source of truth for the FE↔BE shape**; update it whenever a
 ## 6. Trade-offs
 
 - Derive averages at query time (store sums) → flexible ranges, no precomputed-average staleness.
-- `user_id` migration cost is paid once (rebuild+backfill); everything else is additive.
+- Per-user is **derived from `token_id`** (no migration) → all schema changes are additive/reversible.
 - Tolerant `other` parsing tolerates provider variance but needs sample-based tests (R2 acceptance).

@@ -3,7 +3,7 @@
   "name": "backend-metrics",
   "title": "C2 后端指标扩展与API",
   "description": "Parse logs.other; add SQLite metric columns + user_id dimension + backfill; extend /api with cost/cache/multimodal/latency/success; emit types.ts",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

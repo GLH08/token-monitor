@@ -1,1 +1,5 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite ALTER-guard migrations, sqlite3 async helpers, snake_case, Prisma BigInt boundaries"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "request.js validation, whitelist maps for dynamic SQL, node:test, response conventions"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Per-handler try/catch, {error} shape, validators return null"}
+{"file": ".trellis/tasks/07-08-monitor-v2/design.md", "reason": "Parent design: metric model + data-source strategy (§2-§4)"}

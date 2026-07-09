@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
-const { mapStatsTotals, STATS_TOKEN_SUM_SQL } = require('../tokenMetrics');
+const { mapStatsTotals, mapExtendedMetrics, STATS_TOKEN_SUM_SQL } = require('../tokenMetrics');
 const {
     parseTimeRange,
     parseOptionalId,
@@ -12,6 +12,17 @@ const {
 } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
+
+// C2 extended metric sums (additive on stats). Averages/rates are derived at
+// query time via mapExtendedMetrics (see tokenMetrics.js).
+const STATS_EXTENDED_SUM_SQL = `
+    SUM(cache_creation_tokens) as cache_creation_tokens,
+    SUM(image_tokens) as image_tokens,
+    SUM(audio_tokens) as audio_tokens,
+    SUM(success_count) as success_count,
+    SUM(first_token_ms_sum) as first_token_ms_sum,
+    SUM(first_token_count) as first_token_count,
+    SUM(use_time_sum_sec) as use_time_sum_sec`;
 
 function withTokenMetrics(row = {}) {
     return mapStatsTotals(row);
@@ -56,6 +67,7 @@ router.get('/summary', async (req, res) => {
     let query = `SELECT ${STATS_TOKEN_SUM_SQL},
                  SUM(request_count) as total_requests,
                  SUM(quota) as total_quota, SUM(error_count) as total_errors,
+                 ${STATS_EXTENDED_SUM_SQL},
                  COUNT(DISTINCT model_name) as active_models FROM stats WHERE 1=1`;
     const params = [];
     if (timeRange.startTs !== null) { query += " AND hour >= ?"; params.push(timeRange.startTs); }
@@ -70,6 +82,35 @@ router.get('/summary', async (req, res) => {
             tokens: row?.tokens
         });
 
+        const extended = mapExtendedMetrics({
+            prompt_tokens: row?.prompt_tokens,
+            cache_hit_tokens: row?.cache_hit_tokens,
+            tokens: row?.tokens,
+            requests: row?.total_requests,
+            errors: row?.total_errors,
+            use_time_sum_sec: row?.use_time_sum_sec,
+            first_token_ms_sum: row?.first_token_ms_sum,
+            first_token_count: row?.first_token_count,
+            cache_creation_tokens: row?.cache_creation_tokens,
+            image_tokens: row?.image_tokens,
+            audio_tokens: row?.audio_tokens
+        });
+
+        // Trailing-60s RPM/TPM from live logs (like new-api SumUsedQuota).
+        // Isolated so a Prisma hiccup never fails the whole summary.
+        let rpm = 0;
+        let tpm = 0;
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            const live = await prisma.log.aggregate({
+                where: { createdAt: { gte: BigInt(now - 60) }, type: { in: [2, 5] } },
+                _count: { id: true },
+                _sum: { promptTokens: true, completionTokens: true }
+            });
+            rpm = live._count.id || 0;
+            tpm = (live._sum.promptTokens || 0) + (live._sum.completionTokens || 0);
+        } catch (e) { /* rpm/tpm stay 0 */ }
+
         res.json({
             total_tokens: tokenMetrics.tokens,
             total_prompt_tokens: tokenMetrics.prompt_tokens,
@@ -81,7 +122,11 @@ router.get('/summary', async (req, res) => {
             total_quota: row?.total_quota || 0,
             total_errors: row?.total_errors || 0,
             active_models: row?.active_models || 0,
-            total_cost: (row?.total_quota || 0) / QUOTA_PER_UNIT
+            total_cost: (row?.total_quota || 0) / QUOTA_PER_UNIT,
+            cost_usd: (row?.total_quota || 0) / QUOTA_PER_UNIT,
+            ...extended,
+            rpm,
+            tpm
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -132,7 +177,8 @@ router.get('/channels/performance', async (req, res) => {
         const rows = await db.allAsync(
             `SELECT channel_id, ${STATS_TOKEN_SUM_SQL}, SUM(request_count) as requests,
              SUM(quota) as quota, SUM(error_count) as errors,
-             SUM(avg_latency * request_count) / SUM(request_count) as avg_latency
+             SUM(avg_latency * request_count) / SUM(request_count) as avg_latency,
+             ${STATS_EXTENDED_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY channel_id ORDER BY requests DESC`,
             [timeRange.startTs, timeRange.endTs]
@@ -155,9 +201,12 @@ router.get('/channels/performance', async (req, res) => {
                 ...tokenMetrics,
                 quota: r.quota,
                 cost: r.quota / QUOTA_PER_UNIT,
+                cost_usd: r.quota / QUOTA_PER_UNIT,
                 errors: r.errors,
                 errorRate: r.requests > 0 ? (r.errors / r.requests * 100).toFixed(2) : 0,
-                avgLatency: Math.round(r.avg_latency || 0)
+                error_rate: r.requests > 0 ? Number((r.errors / r.requests).toFixed(4)) : 0,
+                avgLatency: Math.round(r.avg_latency || 0),
+                ...mapExtendedMetrics(r)
             };
         });
 
@@ -178,7 +227,8 @@ router.get('/models/analysis', async (req, res) => {
     try {
         let query = `SELECT model_name, ${STATS_TOKEN_SUM_SQL}, SUM(request_count) as requests,
              SUM(quota) as quota, SUM(error_count) as errors,
-             SUM(avg_latency * request_count) / SUM(request_count) as avg_latency
+             SUM(avg_latency * request_count) / SUM(request_count) as avg_latency,
+             ${STATS_EXTENDED_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?`;
         const params = [timeRange.startTs, timeRange.endTs];
 
@@ -191,15 +241,9 @@ router.get('/models/analysis', async (req, res) => {
 
         const rows = await db.allAsync(query, params);
 
-        const modelNames = rows.map(r => r.model_name);
-        let modelMap = {};
-        try {
-            const models = await prisma.model.findMany({
-                where: { modelName: { in: modelNames } }
-            });
-            modelMap = Object.fromEntries(models.map(m => [m.modelName, m]));
-        } catch (e) { }
-
+        // Ratios (model_ratio/completion_ratio) are per-log fields in logs.other,
+        // not columns on the Model table (which has no such columns). They are
+        // exposed per-log via /api/logs, not aggregated here.
         const models = rows.map(r => {
             const tokenMetrics = withTokenMetrics(r);
             return {
@@ -208,11 +252,12 @@ router.get('/models/analysis', async (req, res) => {
                 ...tokenMetrics,
                 quota: r.quota,
                 cost: r.quota / QUOTA_PER_UNIT,
+                cost_usd: r.quota / QUOTA_PER_UNIT,
                 errors: r.errors,
                 errorRate: r.requests > 0 ? (r.errors / r.requests * 100).toFixed(2) : 0,
+                error_rate: r.requests > 0 ? Number((r.errors / r.requests).toFixed(4)) : 0,
                 avgLatency: Math.round(r.avg_latency || 0),
-                modelRatio: modelMap[r.model_name]?.modelRatio,
-                completionRatio: modelMap[r.model_name]?.completionRatio
+                ...mapExtendedMetrics(r)
             };
         });
 
@@ -232,16 +277,27 @@ router.get('/models/analysis', async (req, res) => {
             throughput_total: 0
         });
 
+        const totalRequests = models.reduce((sum, m) => sum + m.requests, 0);
+        const totalErrors = models.reduce((sum, m) => sum + m.errors, 0);
+
         const summary = {
             totalModels: models.length,
-            totalRequests: models.reduce((sum, m) => sum + m.requests, 0),
+            totalRequests,
+            totalErrors,
             totalTokens: summaryTokens.tokens,
             totalPromptTokens: summaryTokens.prompt_tokens,
             totalCompletionTokens: summaryTokens.completion_tokens,
             totalCacheHitTokens: summaryTokens.cache_hit_tokens,
             netInputTokens: summaryTokens.net_input_tokens,
             throughputTotal: summaryTokens.throughput_total,
-            totalCost: models.reduce((sum, m) => sum + m.cost, 0)
+            totalCost: models.reduce((sum, m) => sum + m.cost, 0),
+            total_cost_usd: models.reduce((sum, m) => sum + m.cost, 0),
+            cache_hit_ratio: summaryTokens.prompt_tokens > 0
+                ? Number((summaryTokens.cache_hit_tokens / summaryTokens.prompt_tokens).toFixed(4))
+                : 0,
+            success_rate: totalRequests > 0
+                ? Number((1 - totalErrors / totalRequests).toFixed(4))
+                : 0
         };
 
         res.json({ models, summary });
@@ -294,7 +350,9 @@ router.get('/analysis/latency', async (req, res) => {
 
         const rows = await db.allAsync(
             `SELECT hour, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
-             SUM(avg_latency * request_count) / SUM(request_count) as avg_latency
+             SUM(quota) as quota, SUM(error_count) as errors,
+             SUM(avg_latency * request_count) / SUM(request_count) as avg_latency,
+             ${STATS_EXTENDED_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY hour ORDER BY hour ASC`,
             [timeRange.startTs, timeRange.endTs]
@@ -310,7 +368,10 @@ router.get('/analysis/latency', async (req, res) => {
                     rpm: r.requests,
                     tpm: tokenMetrics.tokens,
                     ...tokenMetrics,
-                    avg_latency: Math.round(r.avg_latency || 0)
+                    quota: r.quota,
+                    errors: r.errors,
+                    avg_latency: Math.round(r.avg_latency || 0),
+                    ...mapExtendedMetrics(r)
                 };
             })
         });
@@ -332,7 +393,8 @@ router.get('/dashboard/hourly-trend', async (req, res) => {
         const rows = await db.allAsync(
             `SELECT hour, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
              SUM(quota) as quota, SUM(error_count) as errors,
-             SUM(avg_latency * request_count) / NULLIF(SUM(request_count), 0) as avg_latency
+             SUM(avg_latency * request_count) / NULLIF(SUM(request_count), 0) as avg_latency,
+             ${STATS_EXTENDED_SUM_SQL}
              FROM stats WHERE hour >= ?
              GROUP BY hour ORDER BY hour ASC`,
             [startTime]
@@ -352,8 +414,10 @@ router.get('/dashboard/hourly-trend', async (req, res) => {
                 ...tokenMetrics,
                 quota: data?.quota || 0,
                 cost: (data?.quota || 0) / QUOTA_PER_UNIT,
+                cost_usd: (data?.quota || 0) / QUOTA_PER_UNIT,
                 errors: data?.errors || 0,
-                avg_latency: Math.round(data?.avg_latency || 0)
+                avg_latency: Math.round(data?.avg_latency || 0),
+                ...mapExtendedMetrics(data || {})
             });
         }
 
@@ -371,7 +435,9 @@ router.get('/dashboard/model-distribution', async (req, res) => {
 
     try {
         const rows = await db.allAsync(
-            `SELECT model_name, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL}, SUM(quota) as quota
+            `SELECT model_name, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
+             SUM(quota) as quota, SUM(error_count) as errors,
+             ${STATS_EXTENDED_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY model_name ORDER BY requests DESC LIMIT 10`,
             [timeRange.startTs, timeRange.endTs]
@@ -386,7 +452,10 @@ router.get('/dashboard/model-distribution', async (req, res) => {
                 ...tokenMetrics,
                 quota: r.quota,
                 cost: r.quota / QUOTA_PER_UNIT,
-                percentage: total > 0 ? parseFloat((r.requests / total * 100).toFixed(2)) : 0
+                cost_usd: r.quota / QUOTA_PER_UNIT,
+                errors: r.errors || 0,
+                percentage: total > 0 ? parseFloat((r.requests / total * 100).toFixed(2)) : 0,
+                ...mapExtendedMetrics(r)
             };
         });
 
