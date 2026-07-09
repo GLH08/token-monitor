@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
-const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, stepExtendedMetricsBackfill } = require('./syncer');
+const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
@@ -163,20 +163,28 @@ function broadcastRealtimeStats() {
 server.listen(PORT, () => {
     console.log(`[SERVER] Running on port ${PORT}`);
 
-    const usageBackfillReady = ensureUsageStatsBackfill()
+    // Startup backfills run STRICTLY SEQUENTIALLY before the sync loop starts:
+    //   1. ensureUsageStatsBackfill (may DELETE+rebuild usage_stats rows)
+    //   2. captureExtendedBackfillBoundary (persist end_id from last_synced_id)
+    //   3. stepExtendedMetricsBackfill (first batch, id <= end_id)
+    // Serializing them prevents the usage_stats rebuild from racing the extended
+    // backfill's UPDATEs on the same rows, and capturing end_id before syncLogs
+    // prevents a later re-capture from overlapping freshly-synced logs and
+    // double-counting extended metrics. The sync loop awaits this chain before
+    // its first syncLogs; if any step fails it is logged and the chain resolves
+    // so syncing still proceeds (the backfill simply skips on a missing end_id).
+    const backfillReady = ensureUsageStatsBackfill()
         .then((result) => {
             if (!result.skipped) {
                 console.log(`[SYNC] Backfilled usage_stats with ${result.processedLogs} logs`);
             }
         })
-        .catch((error) => console.error('[SYNC] usage_stats backfill error:', error));
-
-    // Capture the extended-backfill boundary (id <= last_synced_id) and run the
-    // first batch before syncing new logs, so the historical range never
-    // overlaps with freshly synced logs. Subsequent batches run after each sync.
-    const extendedBackfillReady = stepExtendedMetricsBackfill()
+        .catch((error) => console.error('[SYNC] usage_stats backfill error:', error))
+        .then(() => captureExtendedBackfillBoundary())
+        .catch((error) => console.error('[SYNC] extended boundary capture error:', error))
+        .then(() => stepExtendedMetricsBackfill())
         .then((result) => {
-            if (!result.skipped) {
+            if (result && !result.skipped) {
                 console.log(`[SYNC] Extended backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
             }
         })
@@ -186,8 +194,7 @@ server.listen(PORT, () => {
     setInterval(async () => {
         const start = Date.now();
         try {
-            await usageBackfillReady;
-            await extendedBackfillReady;
+            await backfillReady;
             const result = await syncLogs();
             syncMetrics.lastSyncTime = new Date().toISOString();
             syncMetrics.lastSyncDuration = Date.now() - start;

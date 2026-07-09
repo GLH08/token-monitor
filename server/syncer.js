@@ -671,29 +671,54 @@ function updateExtendedMetrics(logs) {
     });
 }
 
+// Capture the extended-backfill boundary (id <= last_synced_id) and persist it
+// BEFORE any syncLogs runs. This must be called once at startup, before the sync
+// loop starts, so that syncLogs can never advance last_synced_id past an
+// unpersisted end_id (which would let a later re-capture overlap ranges and
+// double-count extended metrics). Idempotent: no-op if the boundary or the
+// completion flag is already set. If there is nothing to backfill yet
+// (last_synced_id == 0), marks the backfill done.
+async function captureExtendedBackfillBoundary() {
+    const done = await getMeta(EXTENDED_BACKFILL_DONE_KEY);
+    if (done) {
+        return { skipped: true };
+    }
+
+    const existing = await getMeta(EXTENDED_BACKFILL_END_KEY);
+    if (existing) {
+        return { skipped: true, endId: parseInt(existing, 10) };
+    }
+
+    const lastIdStr = await getMeta('last_synced_id');
+    const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
+    if (!lastSyncedId) {
+        await setMeta(EXTENDED_BACKFILL_DONE_KEY, new Date().toISOString());
+        return { skipped: true };
+    }
+
+    await setMeta(EXTENDED_BACKFILL_END_KEY, String(lastSyncedId));
+    await setMeta(EXTENDED_BACKFILL_PROGRESS_KEY, '0');
+    return { captured: true, endId: lastSyncedId };
+}
+
 // Resumable, batch-bounded backfill of the extended metric columns from
-// historical logs.other. The old/new boundary (end_id) is captured from
-// last_synced_id on the first run; callers must invoke the first step before
-// syncing new logs so the ranges never overlap. Progress is persisted per
-// batch, so a kill/restart continues from where it left off.
+// historical logs.other. The boundary (end_id) must have been captured first by
+// captureExtendedBackfillBoundary(); if it is missing (capture failed or was
+// skipped), this skips rather than re-read last_synced_id, so freshly-synced
+// logs can never be double-counted. Progress is persisted per batch, so a
+// kill/restart continues from where it left off.
 async function stepExtendedMetricsBackfill() {
     const done = await getMeta(EXTENDED_BACKFILL_DONE_KEY);
     if (done) {
         return { skipped: true };
     }
 
-    const lastIdStr = await getMeta('last_synced_id');
-    const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
-
-    let endIdStr = await getMeta(EXTENDED_BACKFILL_END_KEY);
+    const endIdStr = await getMeta(EXTENDED_BACKFILL_END_KEY);
     if (!endIdStr) {
-        if (!lastSyncedId) {
-            await setMeta(EXTENDED_BACKFILL_DONE_KEY, new Date().toISOString());
-            return { skipped: true };
-        }
-        endIdStr = String(lastSyncedId);
-        await setMeta(EXTENDED_BACKFILL_END_KEY, endIdStr);
-        await setMeta(EXTENDED_BACKFILL_PROGRESS_KEY, '0');
+        // Boundary not captured; skip this run. New logs still get extended
+        // metrics via the normal sync path (updateAggregates), so the only cost
+        // of skipping is historical rows stay at zero - never a double-count.
+        return { skipped: true };
     }
     const endId = parseInt(endIdStr, 10);
 
@@ -748,6 +773,7 @@ module.exports = {
     prisma,
     rebuildStatsForDateRange,
     ensureUsageStatsBackfill,
+    captureExtendedBackfillBoundary,
     stepExtendedMetricsBackfill,
     parseCacheHitTokens,
     getRebuildHourRange,
