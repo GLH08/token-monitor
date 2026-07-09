@@ -12,4 +12,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // Split large vendor libs into their own chunks so they cache independently
+    // and load in parallel, instead of one monolithic bundle.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          echarts: ['echarts', 'echarts-for-react'],
+          react: ['react', 'react-dom', 'react-router-dom'],
+          tanstack: ['@tanstack/react-query', '@tanstack/react-table'],
+        },
+      },
+    },
+  },
 })
+

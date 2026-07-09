@@ -1,5 +1,6 @@
-import ReactECharts from 'echarts-for-react';
+import ReactEChartsCore from 'echarts-for-react/lib/core';
 import { useMemo } from 'react';
+import { echarts } from './echartsCore';
 import { pickColors, useChartTheme } from './palette';
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '../../lib/cn';
@@ -78,7 +79,8 @@ const RankBar = ({ data, height = 300, loading = false, className, valueFormatte
     }
 
     return (
-        <ReactECharts
+        <ReactEChartsCore
+            echarts={echarts}
             option={option}
             style={{ height, width: '100%' }}
             notMerge
