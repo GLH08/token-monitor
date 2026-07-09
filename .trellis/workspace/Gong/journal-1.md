@@ -46,3 +46,37 @@ Completed Trellis bootstrap (filled 11 backend/frontend spec files from real cod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: v2 部署后修复: 缓存命中/环形图/模型树/日志筛选/计费
+
+**Date**: 2026-07-09
+**Task**: v2 部署后修复: 缓存命中/环形图/模型树/日志筛选/计费
+**Branch**: `main`
+
+### Summary
+
+Fixed 5 post-deploy issues. (1) Cache-hit ratio 921%: new-api prompt_tokens excludes cache for Claude semantics; added total_input_tokens column computed per-log with semantic detection (prompt+cache_hit+cache_creation for Claude, prompt for OpenAI), used as the cache_hit_ratio denominator; fixed net_input_tokens/throughput_total; dedicated resumable backfill reusing the captured end_id. (2) Billing -1 sentinels render as '-'. (3) DistributionPie caps top-8 + '其他' and hides on-pie labels. (4) Models 模型数 KPI icon removed. (5) Logs upstream_request_id filter removed (request_id kept). 42 backend tests pass; frontend lint 0 errors + build OK.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c697ed1` | (see git log) |
+| `91fa275` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

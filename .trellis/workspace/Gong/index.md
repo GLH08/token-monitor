@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
+- **Total Sessions**: 2
 - **Last Active**: 2026-07-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~48 | Active |
+| `journal-1.md` | ~82 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-07-09 | v2 部署后修复: 缓存命中/环形图/模型树/日志筛选/计费 | `c697ed1`, `91fa275` | `main` |
 | 1 | 2026-07-09 | monitor-v2 全栈重构 + Trellis bootstrap + 优化 | `78dfb02`, `9dc0b32`, `840542e`, `f01b44c`, `64c127e`, `ecbc1f8`, `754e7f5`, `eba3d23`, `b10d2b5` | `main` |
 <!-- @@@/auto:session-history -->
 
