@@ -3,7 +3,7 @@
   "name": "frontend-rebuild",
   "title": "C3 前端重构 Vite+TS",
   "description": "Rebuild web/ in Vite+TypeScript+shadcn+TanStack+ECharts; new IA/pages; render new metrics; consume C2 API/types",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
