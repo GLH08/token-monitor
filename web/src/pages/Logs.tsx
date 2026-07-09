@@ -72,14 +72,12 @@ interface FilterDraft {
     model_name: string;
     channel_id: string;
     request_id: string;
-    upstream_request_id: string;
 }
 
 const EMPTY_DRAFT: FilterDraft = {
     model_name: '',
     channel_id: '',
     request_id: '',
-    upstream_request_id: '',
 };
 
 // ==================== Log details dialog ====================
@@ -97,6 +95,11 @@ const BreakdownRow = ({ label, value, accent }: { label: string; value: string; 
         <span className={cn('font-mono text-sm tabular-nums', accent)}>{value}</span>
     </div>
 );
+
+// new-api uses -1 as the "unset" sentinel for ratios/price; 0 means not present
+// either. Render both as "-" so the billing section never shows bogus -1/$-1.
+const formatRatio = (v: number): string => (Number.isFinite(v) && v > 0 ? v.toFixed(4) : '-');
+const formatPrice = (v: number): string => (Number.isFinite(v) && v > 0 ? formatUsd(v) : '-');
 
 const LogDetailsDialog = ({
     log,
@@ -191,12 +194,12 @@ const LogDetailsDialog = ({
                     <div className="rounded-lg border p-4">
                         <div className="mb-2 text-sm font-semibold">计费明细</div>
                         <div className="grid grid-cols-2 gap-x-6 gap-y-0">
-                            <BreakdownRow label="模型倍率" value={formatNumber(log.ratios.model, 4)} />
-                            <BreakdownRow label="补全倍率" value={formatNumber(log.ratios.completion, 4)} />
-                            <BreakdownRow label="分组倍率" value={formatNumber(log.ratios.group, 4)} />
-                            <BreakdownRow label="缓存倍率" value={formatNumber(log.ratios.cache, 4)} />
-                            <BreakdownRow label="用户分组倍率" value={formatNumber(log.ratios.userGroup, 4)} />
-                            <BreakdownRow label="模型单价" value={formatUsd(log.ratios.modelPrice)} />
+                            <BreakdownRow label="模型倍率" value={formatRatio(log.ratios.model)} />
+                            <BreakdownRow label="补全倍率" value={formatRatio(log.ratios.completion)} />
+                            <BreakdownRow label="分组倍率" value={formatRatio(log.ratios.group)} />
+                            <BreakdownRow label="缓存倍率" value={formatRatio(log.ratios.cache)} />
+                            <BreakdownRow label="用户分组倍率" value={formatRatio(log.ratios.userGroup)} />
+                            <BreakdownRow label="模型单价" value={formatPrice(log.ratios.modelPrice)} />
                             <BreakdownRow
                                 label="费用 (USD)"
                                 value={formatUsd(log.cost_usd)}
@@ -230,7 +233,6 @@ const Logs = () => {
     const urlModel = searchParams.get('model_name') ?? '';
     const urlChannel = searchParams.get('channel_id') ?? '';
     const urlRequest = searchParams.get('request_id') ?? '';
-    const urlUpstream = searchParams.get('upstream_request_id') ?? '';
     const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
     // Draft-then-apply: edits live in local state, only committed to the URL on Search/Enter.
@@ -238,7 +240,6 @@ const Logs = () => {
         model_name: urlModel,
         channel_id: urlChannel,
         request_id: urlRequest,
-        upstream_request_id: urlUpstream,
     });
     const [selectedLog, setSelectedLog] = useState<LogRow | null>(null);
 
@@ -248,9 +249,8 @@ const Logs = () => {
             model_name: urlModel,
             channel_id: urlChannel,
             request_id: urlRequest,
-            upstream_request_id: urlUpstream,
         });
-    }, [urlModel, urlChannel, urlRequest, urlUpstream]);
+    }, [urlModel, urlChannel, urlRequest]);
 
     const upsertParam = (sp: URLSearchParams, key: string, value: string) => {
         if (value) sp.set(key, value);
@@ -262,7 +262,6 @@ const Logs = () => {
         upsertParam(next, 'model_name', draft.model_name.trim());
         upsertParam(next, 'channel_id', draft.channel_id.trim());
         upsertParam(next, 'request_id', draft.request_id.trim());
-        upsertParam(next, 'upstream_request_id', draft.upstream_request_id.trim());
         next.delete('page');
         setSearchParams(next);
     };
@@ -270,7 +269,7 @@ const Logs = () => {
     const handleReset = () => {
         setDraft(EMPTY_DRAFT);
         const next = new URLSearchParams(searchParams);
-        ['model_name', 'channel_id', 'request_id', 'upstream_request_id', 'page'].forEach((k) => next.delete(k));
+        ['model_name', 'channel_id', 'request_id', 'page'].forEach((k) => next.delete(k));
         setSearchParams(next);
     };
 
@@ -285,7 +284,7 @@ const Logs = () => {
         setSearchParams(next);
     };
 
-    const activeFilterCount = [urlModel, urlChannel, urlRequest, urlUpstream].filter(Boolean).length;
+    const activeFilterCount = [urlModel, urlChannel, urlRequest].filter(Boolean).length;
 
     const { data, isLoading, isError } = useLogs({
         start_ts: startTs,
@@ -293,7 +292,6 @@ const Logs = () => {
         model_name: urlModel || undefined,
         channel_id: urlChannel || undefined,
         request_id: urlRequest || undefined,
-        upstream_request_id: urlUpstream || undefined,
         page,
         pageSize: PAGE_SIZE,
     });
@@ -493,13 +491,6 @@ const Logs = () => {
                             placeholder="请求 ID"
                             value={draft.request_id}
                             onChange={(e) => setDraft({ ...draft, request_id: e.target.value })}
-                            onKeyDown={handleEnterKey}
-                            className="h-9 w-44"
-                        />
-                        <Input
-                            placeholder="上游请求 ID"
-                            value={draft.upstream_request_id}
-                            onChange={(e) => setDraft({ ...draft, upstream_request_id: e.target.value })}
                             onKeyDown={handleEnterKey}
                             className="h-9 w-44"
                         />

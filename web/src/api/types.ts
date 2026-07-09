@@ -34,7 +34,9 @@ export interface ExtendedMetrics {
     cache_creation_tokens: number;
     image_tokens: number;
     audio_tokens: number;
-    /** 0..1, = cache_hit_tokens / prompt_tokens. */
+    /** Total input tokens incl. cache (prompt_tokens + cache for Claude-semantic). */
+    total_input_tokens: number;
+    /** 0..1, = cache_hit_tokens / total_input_tokens. */
     cache_hit_ratio: number;
     /** 0..1, = 1 - errors/requests (0 when no requests). */
     success_rate: number;

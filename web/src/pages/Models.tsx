@@ -94,7 +94,6 @@ const Models = () => {
         {
             label: '模型数',
             value: summary ? formatNumber(summary.totalModels, 0) : '--',
-            icon: Cpu,
             loading: isLoading,
         },
         {
