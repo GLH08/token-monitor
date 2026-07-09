@@ -38,6 +38,8 @@ test('metricsFromLog computes net input and throughput totals', () => {
         other: '{"cache_tokens":30}'
     });
 
+    // OpenAI-semantic: prompt includes cache -> total input = prompt = 100.
+    // net input = 100 - 30 - 0 = 70; throughput = 100 + 20 = 120.
     assert.deepEqual(metrics, {
         promptTokens: 100,
         completionTokens: 20,
@@ -55,8 +57,28 @@ test('metricsFromLog computes net input and throughput totals', () => {
         frtMs: 0,
         useTimeSec: 0,
         billingSource: null,
-        ratios: { model: 0, completion: 0, group: 0, cache: 0, userGroup: 0, modelPrice: 0 }
+        ratios: { model: 0, completion: 0, group: 0, cache: 0, userGroup: 0, modelPrice: 0 },
+        totalInputTokens: 100
     });
+});
+
+test('metricsFromLog totalInputTokens adds cache for Claude-semantic logs', () => {
+    // new-api stores prompt_tokens EXCLUDING cache for Anthropic/Claude. The
+    // total input (denominator for cache-hit ratio) must add cache read + write.
+    const claude = metricsFromLog({
+        promptTokens: 20,
+        completionTokens: 10,
+        other: JSON.stringify({ claude: true, cache_tokens: 80, cache_creation_tokens: 40 })
+    });
+    assert.equal(claude.totalInputTokens, 140); // 20 + 80 + 40
+
+    // OpenAI-semantic: prompt_tokens already includes cache -> total = prompt.
+    const openai = metricsFromLog({
+        promptTokens: 100,
+        completionTokens: 10,
+        other: JSON.stringify({ cache_tokens: 80 })
+    });
+    assert.equal(openai.totalInputTokens, 100);
 });
 
 test('mapStatsTotals mirrors aggregate row semantics', () => {
@@ -70,8 +92,29 @@ test('mapStatsTotals mirrors aggregate row semantics', () => {
         completion_tokens: 29000,
         cache_hit_tokens: 3740000,
         tokens: 5429000,
+        total_input_tokens: 5400000,
         net_input_tokens: 1660000,
         throughput_total: 5429000
+    });
+});
+
+test('mapStatsTotals derives net input from total_input_tokens when backfilled', () => {
+    // Claude-semantic bucket: total_input includes cache; net = total - cache_hit - cache_creation.
+    assert.deepEqual(mapStatsTotals({
+        prompt_tokens: 200,        // non-cached input (Claude)
+        completion_tokens: 50,
+        cache_hit_tokens: 800,     // cache read
+        cache_creation_tokens: 100,
+        total_input_tokens: 1100,  // 200 + 800 + 100
+        tokens: 250
+    }), {
+        prompt_tokens: 200,
+        completion_tokens: 50,
+        cache_hit_tokens: 800,
+        tokens: 250,
+        total_input_tokens: 1100,
+        net_input_tokens: 200,      // 1100 - 800 - 100
+        throughput_total: 1150      // 1100 + 50
     });
 });
 
@@ -157,7 +200,7 @@ test('updateStats aggregates extended metrics from logs.other into stats', async
     const row = await db.getAsync(`
         SELECT request_count, error_count, success_count, cache_creation_tokens,
                image_tokens, audio_tokens, reasoning_requests, tool_calls, tool_quota,
-               first_token_ms_sum, first_token_count, use_time_sum_sec
+               first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
         FROM stats
         WHERE channel_id = 3 AND model_name = 'claude'
     `);
@@ -174,6 +217,7 @@ test('updateStats aggregates extended metrics from logs.other into stats', async
         tool_quota: 37500,
         first_token_ms_sum: 1800,
         first_token_count: 1,
-        use_time_sum_sec: 16
+        use_time_sum_sec: 16,
+        total_input_tokens: 1100
     });
 });

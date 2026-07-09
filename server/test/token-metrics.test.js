@@ -244,7 +244,10 @@ test('metricsFromLog handles claude cache sample end-to-end', () => {
     assert.equal(metrics.frtMs, 1230);
     assert.equal(metrics.useTimeSec, 4);
     assert.equal(metrics.billingSource, 'wallet');
-    assert.equal(metrics.netInputTokens, 1500); // 2000 - 500 cache hit
+    // Claude-semantic: total input = prompt + cache_hit + cache_creation = 3300;
+    // net input (non-cached) = 3300 - 500 - 800 = 2000.
+    assert.equal(metrics.totalInputTokens, 3300);
+    assert.equal(metrics.netInputTokens, 2000);
 });
 
 // --- tolerance ---

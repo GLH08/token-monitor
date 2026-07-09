@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
-const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill } = require('./syncer');
+const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill, stepTotalInputBackfill } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
@@ -188,7 +188,14 @@ server.listen(PORT, () => {
                 console.log(`[SYNC] Extended backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
             }
         })
-        .catch((error) => console.error('[SYNC] extended backfill error:', error));
+        .catch((error) => console.error('[SYNC] extended backfill error:', error))
+        .then(() => stepTotalInputBackfill())
+        .then((result) => {
+            if (result && !result.skipped) {
+                console.log(`[SYNC] Total-input backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
+            }
+        })
+        .catch((error) => console.error('[SYNC] total-input backfill error:', error));
 
     // 日志同步 (每5秒) + 延迟监控
     setInterval(async () => {
@@ -206,6 +213,10 @@ server.listen(PORT, () => {
             // Continue the resumable extended-metrics backfill (bounded per run).
             await stepExtendedMetricsBackfill().catch((error) => {
                 console.error('[SYNC] Extended backfill step error:', error);
+            });
+            // Continue the dedicated total_input_tokens backfill (bounded per run).
+            await stepTotalInputBackfill().catch((error) => {
+                console.error('[SYNC] Total-input backfill step error:', error);
             });
         } catch (e) {
             syncMetrics.lastError = e.message;

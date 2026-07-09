@@ -198,7 +198,8 @@ const EXTENDED_METRIC_COLUMNS = [
     'success_count',
     'first_token_ms_sum',
     'first_token_count',
-    'use_time_sum_sec'
+    'use_time_sum_sec',
+    'total_input_tokens'
 ];
 
 // Idempotent ALTER TABLE guards so already-deployed SQLite files upgrade in

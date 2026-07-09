@@ -17,6 +17,10 @@ const USAGE_STATS_CACHE_HIT_BACKFILL_KEY = 'usage_stats_cache_hit_backfilled_v2'
 const EXTENDED_BACKFILL_END_KEY = 'extended_backfill_end_id_v1';
 const EXTENDED_BACKFILL_PROGRESS_KEY = 'extended_backfill_progress_id_v1';
 const EXTENDED_BACKFILL_DONE_KEY = 'extended_backfill_done_v1';
+// Dedicated backfill for total_input_tokens (added after the extended backfill
+// had already completed on deployed systems). Reuses the extended boundary.
+const TOTAL_INPUT_BACKFILL_PROGRESS_KEY = 'total_input_backfill_progress_id_v1';
+const TOTAL_INPUT_BACKFILL_DONE_KEY = 'total_input_backfill_done_v1';
 
 const syncState = {
     lastFetchedCount: 0,
@@ -86,7 +90,8 @@ function newExtendedAgg() {
         successCount: 0,
         firstTokenMsSum: 0,
         firstTokenCount: 0,
-        useTimeSumSec: 0
+        useTimeSumSec: 0,
+        totalInputTokens: 0
     };
 }
 
@@ -101,6 +106,7 @@ function accumulateExtended(agg, metrics, log) {
     agg.firstTokenMsSum += metrics.frtMs > 0 ? metrics.frtMs : 0;
     agg.firstTokenCount += metrics.frtMs > 0 ? 1 : 0;
     agg.useTimeSumSec += metrics.useTimeSec;
+    agg.totalInputTokens += metrics.totalInputTokens;
 }
 
 async function updateAggregates(logs, { includeStats, includeUsageStats }) {
@@ -115,9 +121,9 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     request_count, quota, error_count, avg_latency,
                     cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
                     tool_calls, tool_quota, success_count,
-                    first_token_ms_sum, first_token_count, use_time_sum_sec
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, model_name, hour)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -141,7 +147,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     success_count = success_count + excluded.success_count,
                     first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
                     first_token_count = first_token_count + excluded.first_token_count,
-                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec
+                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
             `) : null;
 
             const usageStmt = includeUsageStats ? db.prepare(`
@@ -150,9 +157,9 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
                     cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
                     tool_calls, tool_quota, success_count,
-                    first_token_ms_sum, first_token_count, use_time_sum_sec
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(hour, user_group, channel_id, model_name, token_id)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -176,7 +183,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     success_count = success_count + excluded.success_count,
                     first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
                     first_token_count = first_token_count + excluded.first_token_count,
-                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec
+                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
             `) : null;
 
             const statsAggregated = {};
@@ -287,7 +295,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.successCount,
                         agg.firstTokenMsSum,
                         agg.firstTokenCount,
-                        agg.useTimeSumSec
+                        agg.useTimeSumSec,
+                        agg.totalInputTokens
                     );
                 });
             }
@@ -318,7 +327,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.successCount,
                         agg.firstTokenMsSum,
                         agg.firstTokenCount,
-                        agg.useTimeSumSec
+                        agg.useTimeSumSec,
+                        agg.totalInputTokens
                     );
                 });
             }
@@ -765,6 +775,122 @@ async function stepExtendedMetricsBackfill() {
     return { processedLogs, processedBatches, progressId, endId, completed };
 }
 
+// Backfill ONLY total_input_tokens. The extended-metrics backfill above was
+// already completed on deployed systems before this column existed and must not
+// re-run (it would double-count the other extended columns). This reuses the
+// same captured end_id boundary and updates only total_input_tokens, so it is
+// safe to run alongside the already-done extended backfill. New logs get
+// total_input_tokens via the live sync (updateAggregates).
+function updateTotalInputTokens(logs) {
+    const statsAgg = {};
+    const usageAgg = {};
+
+    logs.forEach(log => {
+        const timestamp = Number(log.createdAt);
+        const hour = Math.floor(timestamp / 3600) * 3600;
+        const channelId = log.channelId || 0;
+        const modelName = log.modelName || '';
+        const tokenId = log.tokenId || 0;
+        const userGroup = log.group || '';
+        const metrics = metricsFromLog(log);
+
+        const statsKey = `${channelId}:${modelName}:${hour}`;
+        if (!statsAgg[statsKey]) {
+            statsAgg[statsKey] = { channelId, modelName, hour, ...newExtendedAgg() };
+        }
+        accumulateExtended(statsAgg[statsKey], metrics, log);
+
+        const usageKey = `${hour}:${userGroup}:${channelId}:${modelName}:${tokenId}`;
+        if (!usageAgg[usageKey]) {
+            usageAgg[usageKey] = { hour, userGroup, channelId, modelName, tokenId, ...newExtendedAgg() };
+        }
+        accumulateExtended(usageAgg[usageKey], metrics, log);
+    });
+
+    const setClause = `total_input_tokens = total_input_tokens + ?`;
+
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+
+            const statsStmt = db.prepare(`UPDATE stats SET ${setClause}
+                WHERE channel_id = ? AND model_name = ? AND hour = ?`);
+            Object.values(statsAgg).forEach(agg => {
+                statsStmt.run(agg.totalInputTokens, agg.channelId, agg.modelName, agg.hour);
+            });
+            statsStmt.finalize();
+
+            const usageStmt = db.prepare(`UPDATE usage_stats SET ${setClause}
+                WHERE hour = ? AND user_group = ? AND channel_id = ? AND model_name = ? AND token_id = ?`);
+            Object.values(usageAgg).forEach(agg => {
+                usageStmt.run(agg.totalInputTokens, agg.hour, agg.userGroup, agg.channelId, agg.modelName, agg.tokenId);
+            });
+            usageStmt.finalize();
+
+            db.run("COMMIT", (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    });
+}
+
+async function stepTotalInputBackfill() {
+    const done = await getMeta(TOTAL_INPUT_BACKFILL_DONE_KEY);
+    if (done) {
+        return { skipped: true };
+    }
+
+    const endIdStr = await getMeta(EXTENDED_BACKFILL_END_KEY);
+    if (!endIdStr) {
+        // Boundary not captured yet; skip (no double-count). New logs still get
+        // total_input_tokens via the live sync path.
+        return { skipped: true };
+    }
+    const endId = parseInt(endIdStr, 10);
+
+    const progressStr = await getMeta(TOTAL_INPUT_BACKFILL_PROGRESS_KEY);
+    let progressId = progressStr ? parseInt(progressStr, 10) : 0;
+    if (progressId >= endId) {
+        await setMeta(TOTAL_INPUT_BACKFILL_DONE_KEY, new Date().toISOString());
+        return { skipped: true, completed: true };
+    }
+
+    let processedLogs = 0;
+    let processedBatches = 0;
+
+    while (processedBatches < MAX_BATCHES_PER_RUN) {
+        const logs = await prisma.log.findMany({
+            where: {
+                id: { gt: progressId, lte: endId },
+                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+            },
+            take: BATCH_SIZE,
+            orderBy: { id: 'asc' }
+        });
+
+        if (logs.length === 0) {
+            break;
+        }
+
+        processedBatches += 1;
+        processedLogs += logs.length;
+        console.log(`[BACKFILL-TOTAL] Batch ${processedBatches}: fetched ${logs.length} logs (id>${progressId}, <=${endId})`);
+
+        await updateTotalInputTokens(logs);
+
+        progressId = logs[logs.length - 1].id;
+        await setMeta(TOTAL_INPUT_BACKFILL_PROGRESS_KEY, progressId.toString());
+    }
+
+    const completed = progressId >= endId;
+    if (completed) {
+        await setMeta(TOTAL_INPUT_BACKFILL_DONE_KEY, new Date().toISOString());
+    }
+
+    return { processedLogs, processedBatches, progressId, endId, completed };
+}
+
 module.exports = {
     syncLogs,
     syncChannelSnapshots,
@@ -775,6 +901,7 @@ module.exports = {
     ensureUsageStatsBackfill,
     captureExtendedBackfillBoundary,
     stepExtendedMetricsBackfill,
+    stepTotalInputBackfill,
     parseCacheHitTokens,
     getRebuildHourRange,
     updateStats,

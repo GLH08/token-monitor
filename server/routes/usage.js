@@ -52,7 +52,8 @@ const METRIC_SUM_SQL = `
     SUM(success_count) as success_count,
     SUM(first_token_ms_sum) as first_token_ms_sum,
     SUM(first_token_count) as first_token_count,
-    SUM(use_time_sum_sec) as use_time_sum_sec
+    SUM(use_time_sum_sec) as use_time_sum_sec,
+    SUM(total_input_tokens) as total_input_tokens
 `;
 
 // Columns summed when regrouping token_id rows into a user (per-user dimension).
@@ -60,7 +61,7 @@ const SUM_COLUMNS = [
     'prompt_tokens', 'completion_tokens', 'cache_hit_tokens', 'tokens',
     'requests', 'quota', 'errors',
     'cache_creation_tokens', 'image_tokens', 'audio_tokens', 'success_count',
-    'first_token_ms_sum', 'first_token_count', 'use_time_sum_sec'
+    'first_token_ms_sum', 'first_token_count', 'use_time_sum_sec', 'total_input_tokens'
 ];
 
 function buildUsageWhere(filters) {
@@ -119,6 +120,7 @@ function zeroTotals() {
         prompt_tokens: 0,
         completion_tokens: 0,
         cache_hit_tokens: 0,
+        total_input_tokens: 0,
         requests: 0,
         quota: 0,
         cost: 0,

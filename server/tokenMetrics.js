@@ -193,8 +193,6 @@ function metricsFromLog(log) {
     const parsed = parseOther(log.other);
     const cacheHitTokens = parseCacheHitTokens(parsed);
     const tokens = promptTokens + completionTokens;
-    const netInputTokens = Math.max(0, promptTokens - cacheHitTokens);
-    const throughputTotal = netInputTokens + completionTokens + cacheHitTokens;
 
     const cacheCreationTokens = parseCacheCreationTokens(parsed);
     const imageTokens = parseImageTokens(parsed);
@@ -204,6 +202,22 @@ function metricsFromLog(log) {
     const frtMs = parseFrtMs(parsed);
     const billingSource = parseBillingSource(parsed);
     const ratios = parseRatios(parsed);
+
+    // Total input tokens (incl. cache). new-api's prompt_tokens EXCLUDES cache for
+    // Anthropic/Claude semantics but INCLUDES it for OpenAI (relay-claude.go:731,910;
+    // text_quota.go:204,256-258). Prefer the normalized other.input_tokens_total when
+    // present; else reconstruct per semantic so cache-hit ratio stays <= 100%.
+    const inputTokensTotalRaw = parsed
+        ? (getNestedNumber(parsed, ['input_tokens_total']) || getNestedNumber(parsed, ['usage', 'input_tokens_total']))
+        : 0;
+    const isClaudeSemantic = !!(parsed && (parsed.usage_semantic === 'anthropic' || parsed.claude === true));
+    const totalInputTokens = inputTokensTotalRaw > 0
+        ? inputTokensTotalRaw
+        : (isClaudeSemantic ? promptTokens + cacheHitTokens + cacheCreationTokens : promptTokens);
+
+    // net input = non-cached input; throughput = total input + completion.
+    const netInputTokens = Math.max(0, totalInputTokens - cacheHitTokens - cacheCreationTokens);
+    const throughputTotal = totalInputTokens + completionTokens;
 
     return {
         promptTokens,
@@ -222,7 +236,8 @@ function metricsFromLog(log) {
         frtMs,
         useTimeSec: log.useTime || 0,
         billingSource,
-        ratios
+        ratios,
+        totalInputTokens
     };
 }
 
@@ -230,15 +245,23 @@ function mapStatsTotals(row = {}) {
     const promptTokens = row.prompt_tokens || 0;
     const completionTokens = row.completion_tokens || 0;
     const cacheHitTokens = row.cache_hit_tokens || 0;
+    const cacheCreationTokens = row.cache_creation_tokens || 0;
     const tokens = row.tokens ?? (promptTokens + completionTokens);
-    const netInputTokens = Math.max(0, promptTokens - cacheHitTokens);
-    const throughputTotal = netInputTokens + completionTokens + cacheHitTokens;
+    // total_input_tokens is backfilled separately; fall back to prompt_tokens for
+    // rows that haven't been backfilled yet (OpenAI semantics, where prompt
+    // already includes cache, so the fallback is still correct for OpenAI).
+    const totalInputTokens = Number(row.total_input_tokens) > 0
+        ? Number(row.total_input_tokens)
+        : promptTokens;
+    const netInputTokens = Math.max(0, totalInputTokens - cacheHitTokens - cacheCreationTokens);
+    const throughputTotal = totalInputTokens + completionTokens;
 
     return {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
         cache_hit_tokens: cacheHitTokens,
         tokens,
+        total_input_tokens: totalInputTokens,
         net_input_tokens: netInputTokens,
         throughput_total: throughputTotal
     };
@@ -253,7 +276,6 @@ function mapStatsTotals(row = {}) {
 //   no requests, consistent with the other derived metrics (0 = no data).
 // - cache_hit_ratio / tps: 0 when the denominator is 0.
 function mapExtendedMetrics(row = {}) {
-    const promptTokens = row.prompt_tokens || 0;
     const cacheHitTokens = row.cache_hit_tokens || 0;
     const requests = row.requests ?? row.request_count ?? 0;
     const errors = row.errors ?? row.error_count ?? 0;
@@ -261,12 +283,18 @@ function mapExtendedMetrics(row = {}) {
     const useTimeSumSec = row.use_time_sum_sec || 0;
     const firstTokenMsSum = row.first_token_ms_sum || 0;
     const firstTokenCount = row.first_token_count || 0;
+    // Cache-hit denominator = total input tokens (incl. cache). Falls back to
+    // prompt_tokens for un-backfilled rows; see mapStatsTotals for the rationale.
+    const totalInputTokens = Number(row.total_input_tokens) > 0
+        ? Number(row.total_input_tokens)
+        : (row.prompt_tokens || 0);
 
     return {
         cache_creation_tokens: row.cache_creation_tokens || 0,
         image_tokens: row.image_tokens || 0,
         audio_tokens: row.audio_tokens || 0,
-        cache_hit_ratio: promptTokens > 0 ? Number((cacheHitTokens / promptTokens).toFixed(4)) : 0,
+        total_input_tokens: totalInputTokens,
+        cache_hit_ratio: totalInputTokens > 0 ? Number((cacheHitTokens / totalInputTokens).toFixed(4)) : 0,
         success_rate: requests > 0 ? Number((1 - errors / requests).toFixed(4)) : 0,
         avg_latency_ms: requests > 0 ? Math.round((useTimeSumSec / requests) * 1000) : 0,
         avg_ttft_ms: firstTokenCount > 0 ? Math.round(firstTokenMsSum / firstTokenCount) : 0,

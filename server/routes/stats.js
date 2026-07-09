@@ -22,7 +22,8 @@ const STATS_EXTENDED_SUM_SQL = `
     SUM(success_count) as success_count,
     SUM(first_token_ms_sum) as first_token_ms_sum,
     SUM(first_token_count) as first_token_count,
-    SUM(use_time_sum_sec) as use_time_sum_sec`;
+    SUM(use_time_sum_sec) as use_time_sum_sec,
+    SUM(total_input_tokens) as total_input_tokens`;
 
 function withTokenMetrics(row = {}) {
     return mapStatsTotals(row);
@@ -79,6 +80,8 @@ router.get('/summary', async (req, res) => {
             prompt_tokens: row?.prompt_tokens,
             completion_tokens: row?.completion_tokens,
             cache_hit_tokens: row?.cache_hit_tokens,
+            cache_creation_tokens: row?.cache_creation_tokens,
+            total_input_tokens: row?.total_input_tokens,
             tokens: row?.tokens
         });
 
@@ -93,7 +96,8 @@ router.get('/summary', async (req, res) => {
             first_token_count: row?.first_token_count,
             cache_creation_tokens: row?.cache_creation_tokens,
             image_tokens: row?.image_tokens,
-            audio_tokens: row?.audio_tokens
+            audio_tokens: row?.audio_tokens,
+            total_input_tokens: row?.total_input_tokens
         });
 
         // Trailing-60s RPM/TPM from live logs (like new-api SumUsedQuota).
@@ -265,6 +269,7 @@ router.get('/models/analysis', async (req, res) => {
             prompt_tokens: acc.prompt_tokens + model.prompt_tokens,
             completion_tokens: acc.completion_tokens + model.completion_tokens,
             cache_hit_tokens: acc.cache_hit_tokens + model.cache_hit_tokens,
+            total_input_tokens: acc.total_input_tokens + (model.total_input_tokens || model.prompt_tokens),
             tokens: acc.tokens + model.tokens,
             net_input_tokens: acc.net_input_tokens + model.net_input_tokens,
             throughput_total: acc.throughput_total + model.throughput_total
@@ -272,6 +277,7 @@ router.get('/models/analysis', async (req, res) => {
             prompt_tokens: 0,
             completion_tokens: 0,
             cache_hit_tokens: 0,
+            total_input_tokens: 0,
             tokens: 0,
             net_input_tokens: 0,
             throughput_total: 0
@@ -292,8 +298,8 @@ router.get('/models/analysis', async (req, res) => {
             throughputTotal: summaryTokens.throughput_total,
             totalCost: models.reduce((sum, m) => sum + m.cost, 0),
             total_cost_usd: models.reduce((sum, m) => sum + m.cost, 0),
-            cache_hit_ratio: summaryTokens.prompt_tokens > 0
-                ? Number((summaryTokens.cache_hit_tokens / summaryTokens.prompt_tokens).toFixed(4))
+            cache_hit_ratio: summaryTokens.total_input_tokens > 0
+                ? Number((summaryTokens.cache_hit_tokens / summaryTokens.total_input_tokens).toFixed(4))
                 : 0,
             success_rate: totalRequests > 0
                 ? Number((1 - totalErrors / totalRequests).toFixed(4))
