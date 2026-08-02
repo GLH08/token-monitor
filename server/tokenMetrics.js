@@ -163,6 +163,27 @@ function parseFrtMs(parsed) {
     return Math.round(frt);
 }
 
+// Multi-key tracking: new-api writes other.admin_info.is_multi_key and
+// other.admin_info.multi_key_index for channels in multi-key (random/polling)
+// mode. See new-api/service/log_info_generate.go:97-100 and
+// controller/relay.go:387-390. Returns -1 when the log is not from a
+// multi-key channel.
+function parseIsMultiKey(parsed) {
+    if (!parsed || !parsed.admin_info) {
+        return false;
+    }
+    return parsed.admin_info.is_multi_key === true;
+}
+
+function parseMultiKeyIndex(parsed) {
+    const obj = typeof parsed === 'string' ? parseOther(parsed) : parsed;
+    if (!parseIsMultiKey(obj)) {
+        return -1;
+    }
+    const idx = obj.admin_info.multi_key_index;
+    return Number.isFinite(Number(idx)) ? Number(idx) : -1;
+}
+
 function parseBillingSource(parsed) {
     if (!parsed) {
         return null;
@@ -202,6 +223,8 @@ function metricsFromLog(log) {
     const frtMs = parseFrtMs(parsed);
     const billingSource = parseBillingSource(parsed);
     const ratios = parseRatios(parsed);
+    const isMultiKey = parseIsMultiKey(parsed);
+    const multiKeyIndex = parseMultiKeyIndex(parsed);
 
     // Total input tokens (incl. cache). new-api's prompt_tokens EXCLUDES cache for
     // Anthropic/Claude semantics but INCLUDES it for OpenAI (relay-claude.go:731,910;
@@ -237,7 +260,9 @@ function metricsFromLog(log) {
         useTimeSec: log.useTime || 0,
         billingSource,
         ratios,
-        totalInputTokens
+        totalInputTokens,
+        isMultiKey,
+        multiKeyIndex
     };
 }
 
@@ -310,6 +335,8 @@ const STATS_TOKEN_SUM_SQL = `
 `;
 
 module.exports = {
+    parseIsMultiKey,
+    parseMultiKeyIndex,
     parseCacheHitTokens,
     parseCacheCreationTokens,
     parseImageTokens,

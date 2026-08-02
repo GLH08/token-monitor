@@ -58,7 +58,9 @@ test('metricsFromLog computes net input and throughput totals', () => {
         useTimeSec: 0,
         billingSource: null,
         ratios: { model: 0, completion: 0, group: 0, cache: 0, userGroup: 0, modelPrice: 0 },
-        totalInputTokens: 100
+        totalInputTokens: 100,
+        isMultiKey: false,
+        multiKeyIndex: -1
     });
 });
 
