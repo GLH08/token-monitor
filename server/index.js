@@ -164,6 +164,32 @@ function broadcastRealtimeStats() {
     });
 }
 
+function broadcastKeyStatusChanges(changes) {
+    if (!changes || changes.length === 0) return;
+    const message = JSON.stringify({ type: 'key_status_change', data: changes });
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+        }
+    });
+    // Record each change in alert_history for audit trail
+    changes.forEach(ch => {
+        const statusLabel = ch.new_status === 3 ? '自动禁用' : ch.new_status === 2 ? '手动禁用' : '启用';
+        const reasonText = ch.reason ? ` (原因: ${ch.reason})` : '';
+        db.runAsync(
+            `INSERT INTO alert_history (alert_id, alert_name, triggered_at, value, threshold, message, action_taken)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [0, '密钥状态变更', ch.timestamp, ch.new_status, ch.old_status,
+             `渠道 ${ch.channel_name} 密钥 #${ch.key_index} 状态变更: ${statusLabel}${reasonText}`,
+             'key_status_change']
+        ).catch(err => console.error('[WS] alert_history insert error:', err));
+    });
+    changes.forEach(ch => {
+        const statusLabel = ch.new_status === 3 ? '自动禁用' : ch.new_status === 2 ? '手动禁用' : '启用';
+        console.log(`[WS] Key status change: channel ${ch.channel_name} key #${ch.key_index} -> ${statusLabel}${ch.reason ? ` (${ch.reason})` : ''}`);
+    });
+}
+
 
 // ==================== 启动服务 ====================
 server.listen(PORT, () => {
@@ -252,7 +278,8 @@ server.listen(PORT, () => {
 
     // 渠道快照 (每小时)
     setInterval(async () => {
-        await syncChannelSnapshots();
+        const snapResult = await syncChannelSnapshots();
+        broadcastKeyStatusChanges(snapResult.keyStatusChanges);
     }, 3600000);
 
     // 清理旧数据 (每天)
@@ -262,5 +289,5 @@ server.listen(PORT, () => {
 
     // 启动时立即执行一次
     updateRealtimeStats();
-    syncChannelSnapshots();
+    syncChannelSnapshots().then(r => broadcastKeyStatusChanges(r.keyStatusChanges));
 });

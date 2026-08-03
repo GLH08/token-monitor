@@ -548,6 +548,7 @@ async function syncChannelSnapshots() {
         const channels = await prisma.channel.findMany({
             select: {
                 id: true,
+                name: true,
                 status: true,
                 responseTime: true,
                 balance: true,
@@ -557,6 +558,23 @@ async function syncChannelSnapshots() {
         });
 
         const now = Math.floor(Date.now() / 1000);
+
+        // Fetch the most recent key_status_json per channel for change detection
+        const prevSnapshots = await db.allAsync(
+            `SELECT cs1.channel_id, cs1.key_status_json
+             FROM channel_snapshots cs1
+             INNER JOIN (
+                 SELECT channel_id, MAX(snapshot_time) as max_time
+                 FROM channel_snapshots
+                 WHERE key_status_json IS NOT NULL
+                 GROUP BY channel_id
+             ) cs2 ON cs1.channel_id = cs2.channel_id AND cs1.snapshot_time = cs2.max_time`
+        );
+        const prevKeyStatus = Object.fromEntries(
+            prevSnapshots.map(r => [r.channel_id, r.key_status_json])
+        );
+
+        const keyStatusChanges = [];
         
         const stmt = db.prepare(`
             INSERT INTO channel_snapshots (channel_id, status, response_time, balance, used_quota, key_status_json, snapshot_time)
@@ -564,26 +582,55 @@ async function syncChannelSnapshots() {
         `);
 
         channels.forEach(ch => {
-            // For multi-key channels, snapshot the per-key status list so we
-            // can track when individual keys were auto-disabled over time.
             let keyStatusJson = null;
+            let newKeyStatus = null;
             if (ch.channelInfo) {
                 try {
                     const info = typeof ch.channelInfo === 'string'
                         ? JSON.parse(ch.channelInfo)
                         : ch.channelInfo;
                     if (info && info.is_multi_key) {
-                        keyStatusJson = JSON.stringify({
+                        newKeyStatus = {
                             multi_key_size: info.multi_key_size || 0,
                             multi_key_mode: info.multi_key_mode || null,
                             status_list: info.multi_key_status_list || {},
                             disabled_reason: info.multi_key_disabled_reason || {},
                             disabled_time: info.multi_key_disabled_time || {},
                             polling_index: info.multi_key_polling_index || 0
-                        });
+                        };
+                        keyStatusJson = JSON.stringify(newKeyStatus);
                     }
                 } catch {
-                    // Ignore parse errors; key_status_json stays null
+                    // Ignore parse errors
+                }
+            }
+
+            // Detect key status changes by comparing with previous snapshot
+            if (newKeyStatus && prevKeyStatus[ch.id]) {
+                try {
+                    const oldStatus = JSON.parse(prevKeyStatus[ch.id]);
+                    const oldList = oldStatus.status_list || {};
+                    const newList = newKeyStatus.status_list || {};
+                    const maxIdx = Math.max(
+                        ...Object.keys({ ...oldList, ...newList }).map(Number)
+                    );
+                    for (let idx = 0; idx <= maxIdx; idx++) {
+                        const oldSt = oldList[idx] !== undefined ? oldList[idx] : 1;
+                        const newSt = newList[idx] !== undefined ? newList[idx] : 1;
+                        if (oldSt !== newSt) {
+                            keyStatusChanges.push({
+                                channel_id: ch.id,
+                                channel_name: ch.name,
+                                key_index: idx,
+                                old_status: oldSt,
+                                new_status: newSt,
+                                reason: newKeyStatus.disabled_reason[idx] || null,
+                                timestamp: now
+                            });
+                        }
+                    }
+                } catch {
+                    // Ignore comparison errors
                 }
             }
 
@@ -599,9 +646,12 @@ async function syncChannelSnapshots() {
         });
 
         stmt.finalize();
-        console.log(`[SYNC] Saved ${channels.length} channel snapshots`);
+        console.log(`[SYNC] Saved ${channels.length} channel snapshots${keyStatusChanges.length > 0 ? `, ${keyStatusChanges.length} key status changes detected` : ''}`);
+        
+        return { keyStatusChanges };
     } catch (error) {
         console.error("[SYNC] Channel snapshot error:", error);
+        return { keyStatusChanges: [] };
     }
 }
 
