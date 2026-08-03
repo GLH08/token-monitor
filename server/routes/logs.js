@@ -137,6 +137,8 @@ router.get('/logs', async (req, res) => {
                     tps: useTimeSec > 0 ? Number((m.tokens / useTimeSec).toFixed(2)) : 0,
                     ratios: m.ratios,
                     billing_source: m.billingSource,
+                    is_multi_key: m.isMultiKey,
+                    multi_key_index: m.multiKeyIndex,
                     is_stream: l.isStream
                 };
             }),

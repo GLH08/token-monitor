@@ -232,6 +232,10 @@ export interface LogRow {
     ratios: Ratios;
     /** 'wallet' | 'subscription' | null. */
     billing_source: string | null;
+    /** Multi-key index (-1 if not multi-key). */
+    multi_key_index: number;
+    /** True if the log used a multi-key channel. */
+    is_multi_key: boolean;
     is_stream: boolean;
 }
 
