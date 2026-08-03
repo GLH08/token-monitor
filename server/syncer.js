@@ -492,8 +492,8 @@ async function syncLogs() {
 
         while (processedBatches < MAX_BATCHES_PER_RUN) {
             const logs = await prisma.log.findMany({
+                select: LOG_SELECT,
                 where: {
- select: LOG_SELECT,
                     id: { gt: lastId },
                     type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
                 },
@@ -707,8 +707,8 @@ async function rebuildStatsForDateRange(startTs, endTs) {
     // 2. 分批拉取对应时间范围内的原始日志并重新聚合
     while (true) {
         const logs = await prisma.log.findMany({
+            select: LOG_SELECT,
             where: {
- select: LOG_SELECT,
                 id: { gt: lastId },
                 createdAt: { gte: BigInt(queryStartTs), lte: BigInt(queryEndTs) },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
@@ -764,6 +764,7 @@ async function rebuildUsageStatsForDateRange(startTs, endTs, maxId = null) {
         }
 
         const logs = await prisma.log.findMany({
+            select: LOG_SELECT,
             where,
             take: BATCH_SIZE,
             orderBy: { id: 'asc' }
@@ -954,8 +955,8 @@ async function stepExtendedMetricsBackfill() {
 
     while (processedBatches < MAX_BATCHES_PER_RUN) {
         const logs = await prisma.log.findMany({
+            select: LOG_SELECT,
             where: {
- select: LOG_SELECT,
                 id: { gt: progressId, lte: endId },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },
@@ -1071,8 +1072,8 @@ async function stepTotalInputBackfill() {
 
     while (processedBatches < MAX_BATCHES_PER_RUN) {
         const logs = await prisma.log.findMany({
+            select: LOG_SELECT,
             where: {
- select: LOG_SELECT,
                 id: { gt: progressId, lte: endId },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },
@@ -1236,8 +1237,8 @@ async function stepKeyStatsBackfill() {
 
     while (processedBatches < MAX_BATCHES_PER_RUN) {
         const logs = await prisma.log.findMany({
+            select: LOG_SELECT,
             where: {
- select: LOG_SELECT,
                 id: { gt: progressId, lte: endId },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },
