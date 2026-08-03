@@ -35,22 +35,28 @@ let realtimeStats = { qps: 0, tps: 0, activeChannels: 0 };
 async function updateRealtimeStats() {
     try {
         const now = Math.floor(Date.now() / 1000);
-        const sixtySecondsAgo = now - 60;
-        const recentLogs = await prisma.log.findMany({
-            where: {
-                createdAt: { gte: sixtySecondsAgo },
-                type: { in: [2, 5] }
-            },
-            select: { promptTokens: true, completionTokens: true, channelId: true }
-        });
+        const currentHour = Math.floor(now / 3600) * 3600;
+        const secondsElapsed = Math.max(1, Math.min(3600, now - currentHour));
 
-        const tokens = recentLogs.reduce((sum, log) => sum + (log.promptTokens || 0) + (log.completionTokens || 0), 0);
-        const channels = new Set(recentLogs.map(l => l.channelId));
+        // Query the local stats table for the current hour bucket. This avoids
+        // hitting the Prisma source DB every 5 seconds; the stats table lags
+        // by at most one sync interval (5s), which is acceptable for realtime.
+        const row = await db.getAsync(
+            `SELECT SUM(request_count) as requests,
+                    SUM(tokens) as tokens,
+                    COUNT(DISTINCT channel_id) as channels
+             FROM stats WHERE hour = ?`,
+            [currentHour]
+        );
+
+        const requests = row?.requests || 0;
+        const tokens = row?.tokens || 0;
+        const channels = row?.channels || 0;
 
         realtimeStats = {
-            qps: Number((recentLogs.length / 60).toFixed(2)),
-            tps: Number((tokens / 60).toFixed(2)),
-            activeChannels: channels.size
+            qps: Number((requests / secondsElapsed).toFixed(2)),
+            tps: Number((tokens / secondsElapsed).toFixed(2)),
+            activeChannels: channels
         };
     } catch (error) {
         console.error('[REALTIME] Update error:', error.message);
