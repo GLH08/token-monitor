@@ -575,15 +575,20 @@ async function syncChannelSnapshots() {
 // 清理旧数据（保留30天）
 async function cleanOldData() {
     try {
-        const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
+        const retentionDays = parseInt(process.env.DATA_RETENTION_DAYS) || 90;
+        const snapshotRetentionDays = retentionDays * 2;
+        const alertRetentionDays = retentionDays * 4;
+        const cutoff = Math.floor(Date.now() / 1000) - retentionDays * 24 * 3600;
+        const snapshotCutoff = Math.floor(Date.now() / 1000) - snapshotRetentionDays * 24 * 3600;
+        const alertCutoff = Math.floor(Date.now() / 1000) - alertRetentionDays * 24 * 3600;
         
-        await db.runAsync("DELETE FROM stats WHERE hour < ?", [thirtyDaysAgo]);
-        await db.runAsync("DELETE FROM usage_stats WHERE hour < ?", [thirtyDaysAgo]);
-        await db.runAsync("DELETE FROM channel_snapshots WHERE snapshot_time < ?", [thirtyDaysAgo]);
-        await db.runAsync("DELETE FROM alert_history WHERE triggered_at < ?", [thirtyDaysAgo]);
-        await db.runAsync("DELETE FROM key_stats WHERE hour < ?", [thirtyDaysAgo]);
+        await db.runAsync("DELETE FROM stats WHERE hour < ?", [cutoff]);
+        await db.runAsync("DELETE FROM usage_stats WHERE hour < ?", [cutoff]);
+        await db.runAsync("DELETE FROM key_stats WHERE hour < ?", [cutoff]);
+        await db.runAsync("DELETE FROM channel_snapshots WHERE snapshot_time < ?", [snapshotCutoff]);
+        await db.runAsync("DELETE FROM alert_history WHERE triggered_at < ?", [alertCutoff]);
         
-        console.log("[SYNC] Cleaned old data (>30 days)");
+        console.log(`[SYNC] Cleaned old data (stats/key_stats/usage_stats >${retentionDays}d, snapshots >${snapshotRetentionDays}d, alerts >${alertRetentionDays}d)`);
     } catch (error) {
         console.error("[SYNC] Clean old data error:", error);
     }
