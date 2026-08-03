@@ -14,6 +14,7 @@ import {
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
+import DistributionPie from '../components/charts/DistributionPie';
 import { useChannelsOverview } from '../api/hooks';
 import { fetchChannelKeys } from '../api/client';
 import { useUIStore } from '../stores/ui';
@@ -253,7 +254,29 @@ const Channels = () => {
                     ) : keysLoading ? (
                         <div className="py-8 text-center text-sm text-muted-foreground">加载中...</div>
                     ) : keysData && keysData.keys.length > 0 ? (
+<>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <p className="mb-2 text-sm font-medium text-muted-foreground">请求分布</p>
+                                <DistributionPie
+                                    data={keysData.keys
+                                        .filter(k => k.requests > 0)
+                                        .map(k => ({ name: `密钥#${k.key_index}`, value: k.requests }))}
+                                    height={220}
+                                />
+                            </div>
+                            <div>
+                                <p className="mb-2 text-sm font-medium text-muted-foreground">费用分布</p>
+                                <DistributionPie
+                                    data={keysData.keys
+                                        .filter(k => k.quota > 0)
+                                        .map(k => ({ name: `密钥#${k.key_index}`, value: Number(k.quota) }))}
+                                    height={220}
+                                />
+                            </div>
+                        </div>
                         <KeyDetailTable keys={keysData.keys} currencyMode={currencyMode} />
+</>
                     ) : (
                         <EmptyState icon={KeyRound} title="暂无密钥数据" description="该渠道可能尚未产生多密钥日志" />
                     )}
