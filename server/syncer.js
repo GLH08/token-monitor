@@ -8,6 +8,24 @@ const BATCH_SIZE = 1000;
 const MAX_BATCHES_PER_RUN = Number.parseInt(process.env.SYNC_MAX_BATCHES_PER_RUN || '100', 10);
 const LOG_TYPE_CONSUME = 2;
 const LOG_TYPE_ERROR = 5;
+
+// Only select fields used by aggregation to reduce Prisma transfer overhead.
+// The `other` field (large JSON) and `content` (free text) are the biggest
+// savings when omitted from unrelated queries.
+const LOG_SELECT = {
+    id: true,
+    createdAt: true,
+    channelId: true,
+    modelName: true,
+    tokenId: true,
+    group: true,
+    type: true,
+    quota: true,
+    useTime: true,
+    promptTokens: true,
+    completionTokens: true,
+    other: true
+};
 const USAGE_STATS_BACKFILL_KEY = 'usage_stats_backfilled_v1';
 const USAGE_STATS_CACHE_HIT_BACKFILL_KEY = 'usage_stats_cache_hit_backfilled_v2';
 // C2 extended-metrics backfill: repopulates the new other-derived columns from
@@ -475,6 +493,7 @@ async function syncLogs() {
         while (processedBatches < MAX_BATCHES_PER_RUN) {
             const logs = await prisma.log.findMany({
                 where: {
+ select: LOG_SELECT,
                     id: { gt: lastId },
                     type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
                 },
@@ -601,6 +620,7 @@ async function rebuildStatsForDateRange(startTs, endTs) {
     while (true) {
         const logs = await prisma.log.findMany({
             where: {
+ select: LOG_SELECT,
                 id: { gt: lastId },
                 createdAt: { gte: BigInt(queryStartTs), lte: BigInt(queryEndTs) },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
@@ -847,6 +867,7 @@ async function stepExtendedMetricsBackfill() {
     while (processedBatches < MAX_BATCHES_PER_RUN) {
         const logs = await prisma.log.findMany({
             where: {
+ select: LOG_SELECT,
                 id: { gt: progressId, lte: endId },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },
@@ -963,6 +984,7 @@ async function stepTotalInputBackfill() {
     while (processedBatches < MAX_BATCHES_PER_RUN) {
         const logs = await prisma.log.findMany({
             where: {
+ select: LOG_SELECT,
                 id: { gt: progressId, lte: endId },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },
@@ -1127,6 +1149,7 @@ async function stepKeyStatsBackfill() {
     while (processedBatches < MAX_BATCHES_PER_RUN) {
         const logs = await prisma.log.findMany({
             where: {
+ select: LOG_SELECT,
                 id: { gt: progressId, lte: endId },
                 type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
             },

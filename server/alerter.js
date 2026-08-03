@@ -107,17 +107,13 @@ async function checkErrorRate(rule, now) {
         params.push(rule.target);
     }
 
-    const totalRow = await db.getAsync(
-        `SELECT SUM(request_count) as total FROM stats WHERE ${whereClause}`,
-        params
-    );
-    const errorRow = await db.getAsync(
-        `SELECT SUM(error_count) as errors FROM stats WHERE ${whereClause}`,
+    const row = await db.getAsync(
+        `SELECT SUM(request_count) as total, SUM(error_count) as errors FROM stats WHERE ${whereClause}`,
         params
     );
 
-    const total = totalRow?.total || 0;
-    const errors = errorRow?.errors || 0;
+    const total = row?.total || 0;
+    const errors = row?.errors || 0;
 
     return total > 0 ? (errors / total * 100) : 0;
 }
