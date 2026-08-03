@@ -1103,9 +1103,11 @@ async function stepTotalInputBackfill() {
     return { processedLogs, processedBatches, progressId, endId, completed };
 }
 
-// Backfill key_stats from historical logs. Uses the same boundary as the
-// extended-metrics backfill (EXTENDED_BACKFILL_END_KEY). Only writes to
-// key_stats (stats/usage_stats are already populated by their own backfills).
+// Backfill key_stats from historical logs. key_stats was introduced after the
+// extended-metrics backfill, so its boundary must follow the current
+// last_synced_id rather than the one-time extended backfill snapshot. Only
+// writes to key_stats (stats/usage_stats are already populated by their own
+// backfills).
 function updateKeyStatsOnly(logs) {
     const keyStatsAggregated = {};
 
@@ -1219,11 +1221,17 @@ async function stepKeyStatsBackfill() {
         return { skipped: true };
     }
 
-    const endIdStr = await getMeta(EXTENDED_BACKFILL_END_KEY);
+    // This backfill may be introduced long after EXTENDED_BACKFILL_END_KEY was
+    // captured. Use the current sync watermark so historical logs added after
+    // that older snapshot are included.
+    const endIdStr = await getMeta('last_synced_id');
     if (!endIdStr) {
         return { skipped: true };
     }
     const endId = parseInt(endIdStr, 10);
+    if (!Number.isFinite(endId) || endId <= 0) {
+        return { skipped: true };
+    }
 
     const progressStr = await getMeta(KEY_STATS_BACKFILL_PROGRESS_KEY);
     let progressId = progressStr ? parseInt(progressStr, 10) : 0;
