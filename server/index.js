@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
-const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill, stepTotalInputBackfill } = require('./syncer');
+const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill, stepTotalInputBackfill, stepKeyStatsBackfill } = require('./syncer');
 const { checkAlerts } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const db = require('./db');
@@ -227,14 +227,14 @@ server.listen(PORT, () => {
                 console.log(`[SYNC] Total-input backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
             }
         })
-        .catch((error) => console.error('[SYNC] total-input backfill error:', error));
+        .catch((error) => console.error('[SYNC] total-input backfill error:', error))
         .then(() => stepKeyStatsBackfill())
         .then((result) => {
             if (result && !result.skipped) {
                 console.log(`[SYNC] Key-stats backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
             }
         })
-        .catch((error) => console.error('[SYNC] key-stats backfill error:', error))
+        .catch((error) => console.error('[SYNC] key-stats backfill error:', error));
 
     // 日志同步 (每5秒) + 延迟监控
     setInterval(async () => {
