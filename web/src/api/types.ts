@@ -297,6 +297,12 @@ export interface ChannelOverviewRow {
     /** 0..1 error fraction over the selected window. */
     error_rate: number;
     avg_latency_ms: number;
+    /** True if this channel uses multi-key (random/polling) mode. */
+    is_multi_key: boolean;
+    /** Number of keys configured (0 when not multi-key). */
+    multi_key_size: number;
+    /** 'random' | 'polling' | null. */
+    multi_key_mode: string | null;
 }
 
 export interface ChannelsOverviewResponse {
@@ -304,6 +310,40 @@ export interface ChannelsOverviewResponse {
     statusCount: { enabled: number; disabled: number; autoDisabled: number };
     total: number;
     timeRange: { startTs: number; endTs: number };
+}
+
+/** Per-key detail for a multi-key channel (GET /api/channels/:id/keys). */
+export interface ChannelKeyDetail {
+    key_index: number;
+    /** Masked key label (e.g. "sk-1...xyz4"). */
+    key_label: string;
+    /** 1=enabled, 2=manually disabled, 3=auto-disabled. */
+    status: number;
+    disabled_reason: string | null;
+    disabled_time: number | null;
+    requests: number;
+    errors: number;
+    error_rate: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    tokens: number;
+    quota: number;
+    cost_usd: number;
+    avg_latency_ms: number;
+    success_count: number;
+    total_input_tokens: number;
+    cache_hit_tokens: number;
+}
+
+export interface ChannelKeysResponse {
+    channel_id: number;
+    channel_name: string;
+    is_multi_key: boolean;
+    multi_key_mode?: string;
+    multi_key_size?: number;
+    multi_key_polling_index?: number;
+    time_range?: { start_ts: number; end_ts: number };
+    keys: ChannelKeyDetail[];
 }
 
 export interface ChannelPerformanceRow extends StatsTotalsWithMetrics {

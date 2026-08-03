@@ -18,7 +18,7 @@ import type {
     LogsResponse,
     ModelAnalysisResponse,
     ChannelsOverviewResponse,
-    ChannelPerformanceResponse,
+    ChannelPerformanceResponse, ChannelKeysResponse,
     LatencyAnalysisResponse,
     DashboardHourlyTrendResponse,
     DashboardModelDistributionResponse,
@@ -327,6 +327,10 @@ export function fetchChannelsOverview(): Promise<ChannelsOverviewResponse> {
 
 export function fetchChannelPerformance(filters: QueryParams = {}): Promise<ChannelPerformanceResponse> {
     return authFetch<ChannelPerformanceResponse>(withQuery('/channels/performance', filters));
+}
+
+export function fetchChannelKeys(channelId: number, filters: QueryParams = {}): Promise<ChannelKeysResponse> {
+    return authFetch<ChannelKeysResponse>(withQuery(`/channels/${channelId}/keys`, filters));
 }
 
 // ==================== Performance / latency ====================
