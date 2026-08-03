@@ -189,6 +189,42 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
 
             const statsAggregated = {};
             const usageAggregated = {};
+            const keyStatsStmt = db.prepare(`
+                INSERT INTO key_stats (
+                    channel_id, key_index, model_name, hour,
+                    prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
+                    cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
+                    tool_calls, tool_quota, success_count,
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(channel_id, key_index, model_name, hour)
+                DO UPDATE SET
+                    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+                    completion_tokens = completion_tokens + excluded.completion_tokens,
+                    cache_hit_tokens = cache_hit_tokens + excluded.cache_hit_tokens,
+                    tokens = tokens + excluded.tokens,
+                    request_count = request_count + excluded.request_count,
+                    quota = quota + excluded.quota,
+                    error_count = error_count + excluded.error_count,
+                    avg_latency = CASE
+                        WHEN request_count + excluded.request_count > 0
+                        THEN (avg_latency * request_count + excluded.avg_latency * excluded.request_count) / (request_count + excluded.request_count)
+                        ELSE 0
+                    END,
+                    cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+                    image_tokens = image_tokens + excluded.image_tokens,
+                    audio_tokens = audio_tokens + excluded.audio_tokens,
+                    reasoning_requests = reasoning_requests + excluded.reasoning_requests,
+                    tool_calls = tool_calls + excluded.tool_calls,
+                    tool_quota = tool_quota + excluded.tool_quota,
+                    success_count = success_count + excluded.success_count,
+                    first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
+                    first_token_count = first_token_count + excluded.first_token_count,
+                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
+            `);
+            const keyStatsAggregated = {};
 
             logs.forEach(log => {
                 const timestamp = Number(log.createdAt);
@@ -268,6 +304,37 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     usageAgg.errorCount += errorCount;
                     usageAgg.latencySum += latency;
                     accumulateExtended(usageAgg, metrics, log);
+                // Multi-key per-key aggregation
+                if (metrics.isMultiKey && metrics.multiKeyIndex >= 0) {
+                    const keyStatsKey = `${channelId}:${metrics.multiKeyIndex}:${modelName}:${hour}`;
+                    if (!keyStatsAggregated[keyStatsKey]) {
+                        keyStatsAggregated[keyStatsKey] = {
+                            channelId,
+                            keyIndex: metrics.multiKeyIndex,
+                            modelName,
+                            hour,
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            cacheHitTokens: 0,
+                            tokens: 0,
+                            requestCount: 0,
+                            quota: 0,
+                            errorCount: 0,
+                            latencySum: 0,
+                            ...newExtendedAgg()
+                        };
+                    }
+                    const keyAgg = keyStatsAggregated[keyStatsKey];
+                    keyAgg.promptTokens += promptTokens;
+                    keyAgg.completionTokens += completionTokens;
+                    keyAgg.cacheHitTokens += cacheHitTokens;
+                    keyAgg.tokens += totalTokens;
+                    keyAgg.requestCount++;
+                    keyAgg.quota += quota;
+                    keyAgg.errorCount += errorCount;
+                    keyAgg.latencySum += latency;
+                    accumulateExtended(keyAgg, metrics, log);
+                }
                 }
             });
 
@@ -338,6 +405,39 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
             }
             if (usageStmt) {
                 usageStmt.finalize();
+            if (keyStatsStmt) {
+                Object.values(keyStatsAggregated).forEach(agg => {
+                    const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
+                    keyStatsStmt.run(
+                        agg.channelId,
+                        agg.keyIndex,
+                        agg.modelName,
+                        agg.hour,
+                        agg.promptTokens,
+                        agg.completionTokens,
+                        agg.cacheHitTokens,
+                        agg.tokens,
+                        agg.requestCount,
+                        agg.quota,
+                        agg.errorCount,
+                        avgLatency,
+                        agg.cacheCreationTokens,
+                        agg.imageTokens,
+                        agg.audioTokens,
+                        agg.reasoningRequests,
+                        agg.toolCalls,
+                        agg.toolQuota,
+                        agg.successCount,
+                        agg.firstTokenMsSum,
+                        agg.firstTokenCount,
+                        agg.useTimeSumSec,
+                        agg.totalInputTokens
+                    );
+                });
+            }
+            if (keyStatsStmt) {
+                keyStatsStmt.finalize();
+            }
             }
             db.run("COMMIT", (err) => {
                 if (err) reject(err);
@@ -462,6 +562,7 @@ async function cleanOldData() {
         await db.runAsync("DELETE FROM usage_stats WHERE hour < ?", [thirtyDaysAgo]);
         await db.runAsync("DELETE FROM channel_snapshots WHERE snapshot_time < ?", [thirtyDaysAgo]);
         await db.runAsync("DELETE FROM alert_history WHERE triggered_at < ?", [thirtyDaysAgo]);
+        await db.runAsync("DELETE FROM key_stats WHERE hour < ?", [thirtyDaysAgo]);
         
         console.log("[SYNC] Cleaned old data (>30 days)");
     } catch (error) {
@@ -891,8 +992,172 @@ async function stepTotalInputBackfill() {
     return { processedLogs, processedBatches, progressId, endId, completed };
 }
 
+// Backfill key_stats from historical logs. Uses the same boundary as the
+// extended-metrics backfill (EXTENDED_BACKFILL_END_KEY). Only writes to
+// key_stats (stats/usage_stats are already populated by their own backfills).
+function updateKeyStatsOnly(logs) {
+    const keyStatsAggregated = {};
+
+    logs.forEach(log => {
+        const metrics = metricsFromLog(log);
+        if (!metrics.isMultiKey || metrics.multiKeyIndex < 0) {
+            return;
+        }
+        const timestamp = Number(log.createdAt);
+        const hour = Math.floor(timestamp / 3600) * 3600;
+        const channelId = log.channelId || 0;
+        const modelName = log.modelName || '';
+        const keyStatsKey = `${channelId}:${metrics.multiKeyIndex}:${modelName}:${hour}`;
+        if (!keyStatsAggregated[keyStatsKey]) {
+            keyStatsAggregated[keyStatsKey] = {
+                channelId,
+                keyIndex: metrics.multiKeyIndex,
+                modelName,
+                hour,
+                promptTokens: 0,
+                completionTokens: 0,
+                cacheHitTokens: 0,
+                tokens: 0,
+                requestCount: 0,
+                quota: 0,
+                errorCount: 0,
+                latencySum: 0,
+                ...newExtendedAgg()
+            };
+        }
+        const keyAgg = keyStatsAggregated[keyStatsKey];
+        keyAgg.promptTokens += metrics.promptTokens;
+        keyAgg.completionTokens += metrics.completionTokens;
+        keyAgg.cacheHitTokens += metrics.cacheHitTokens;
+        keyAgg.tokens += metrics.tokens;
+        keyAgg.requestCount++;
+        keyAgg.quota += log.quota || 0;
+        keyAgg.errorCount += log.type === LOG_TYPE_ERROR ? 1 : 0;
+        keyAgg.latencySum += log.useTime || 0;
+        accumulateExtended(keyAgg, metrics, log);
+    });
+
+    if (Object.keys(keyStatsAggregated).length === 0) {
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+            const stmt = db.prepare(`
+                INSERT INTO key_stats (
+                    channel_id, key_index, model_name, hour,
+                    prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
+                    cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
+                    tool_calls, tool_quota, success_count,
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(channel_id, key_index, model_name, hour)
+                DO UPDATE SET
+                    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+                    completion_tokens = completion_tokens + excluded.completion_tokens,
+                    cache_hit_tokens = cache_hit_tokens + excluded.cache_hit_tokens,
+                    tokens = tokens + excluded.tokens,
+                    request_count = request_count + excluded.request_count,
+                    quota = quota + excluded.quota,
+                    error_count = error_count + excluded.error_count,
+                    avg_latency = CASE
+                        WHEN request_count + excluded.request_count > 0
+                        THEN (avg_latency * request_count + excluded.avg_latency * excluded.request_count) / (request_count + excluded.request_count)
+                        ELSE 0
+                    END,
+                    cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+                    image_tokens = image_tokens + excluded.image_tokens,
+                    audio_tokens = audio_tokens + excluded.audio_tokens,
+                    reasoning_requests = reasoning_requests + excluded.reasoning_requests,
+                    tool_calls = tool_calls + excluded.tool_calls,
+                    tool_quota = tool_quota + excluded.tool_quota,
+                    success_count = success_count + excluded.success_count,
+                    first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
+                    first_token_count = first_token_count + excluded.first_token_count,
+                    use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
+            `);
+            Object.values(keyStatsAggregated).forEach(agg => {
+                const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
+                stmt.run(
+                    agg.channelId, agg.keyIndex, agg.modelName, agg.hour,
+                    agg.promptTokens, agg.completionTokens, agg.cacheHitTokens, agg.tokens,
+                    agg.requestCount, agg.quota, agg.errorCount, avgLatency,
+                    agg.cacheCreationTokens, agg.imageTokens, agg.audioTokens, agg.reasoningRequests,
+                    agg.toolCalls, agg.toolQuota, agg.successCount,
+                    agg.firstTokenMsSum, agg.firstTokenCount, agg.useTimeSumSec, agg.totalInputTokens
+                );
+            });
+            stmt.finalize();
+            db.run("COMMIT", (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    });
+}
+
+const KEY_STATS_BACKFILL_PROGRESS_KEY = 'key_stats_backfill_progress_id_v1';
+const KEY_STATS_BACKFILL_DONE_KEY = 'key_stats_backfill_done_v1';
+
+async function stepKeyStatsBackfill() {
+    const done = await getMeta(KEY_STATS_BACKFILL_DONE_KEY);
+    if (done) {
+        return { skipped: true };
+    }
+
+    const endIdStr = await getMeta(EXTENDED_BACKFILL_END_KEY);
+    if (!endIdStr) {
+        return { skipped: true };
+    }
+    const endId = parseInt(endIdStr, 10);
+
+    const progressStr = await getMeta(KEY_STATS_BACKFILL_PROGRESS_KEY);
+    let progressId = progressStr ? parseInt(progressStr, 10) : 0;
+    if (progressId >= endId) {
+        await setMeta(KEY_STATS_BACKFILL_DONE_KEY, new Date().toISOString());
+        return { skipped: true, completed: true };
+    }
+
+    let processedLogs = 0;
+    let processedBatches = 0;
+
+    while (processedBatches < MAX_BATCHES_PER_RUN) {
+        const logs = await prisma.log.findMany({
+            where: {
+                id: { gt: progressId, lte: endId },
+                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+            },
+            take: BATCH_SIZE,
+            orderBy: { id: 'asc' }
+        });
+
+        if (logs.length === 0) {
+            break;
+        }
+
+        processedBatches += 1;
+        processedLogs += logs.length;
+        console.log(`[BACKFILL-KEY] Batch ${processedBatches}: fetched ${logs.length} logs (id>${progressId}, <=${endId})`);
+
+        await updateKeyStatsOnly(logs);
+
+        progressId = logs[logs.length - 1].id;
+        await setMeta(KEY_STATS_BACKFILL_PROGRESS_KEY, progressId.toString());
+    }
+
+    const completed = progressId >= endId;
+    if (completed) {
+        await setMeta(KEY_STATS_BACKFILL_DONE_KEY, new Date().toISOString());
+    }
+
+    return { processedLogs, processedBatches, progressId, endId, completed };
+}
+
 module.exports = {
-    syncLogs,
+    syncLogs,    stepKeyStatsBackfill,
     syncChannelSnapshots,
     cleanOldData,
     getSyncState,
@@ -907,4 +1172,3 @@ module.exports = {
     updateStats,
     updateUsageStats
 };
-

@@ -196,6 +196,13 @@ server.listen(PORT, () => {
             }
         })
         .catch((error) => console.error('[SYNC] total-input backfill error:', error));
+        .then(() => stepKeyStatsBackfill())
+        .then((result) => {
+            if (result && !result.skipped) {
+                console.log(`[SYNC] Key-stats backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
+            }
+        })
+        .catch((error) => console.error('[SYNC] key-stats backfill error:', error))
 
     // 日志同步 (每5秒) + 延迟监控
     setInterval(async () => {
@@ -217,6 +224,9 @@ server.listen(PORT, () => {
             // Continue the dedicated total_input_tokens backfill (bounded per run).
             await stepTotalInputBackfill().catch((error) => {
                 console.error('[SYNC] Total-input backfill step error:', error);
+            });
+            await stepKeyStatsBackfill().catch((error) => {
+                console.error('[SYNC] Key-stats backfill step error:', error);
             });
         } catch (e) {
             syncMetrics.lastError = e.message;

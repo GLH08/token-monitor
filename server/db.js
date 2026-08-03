@@ -134,6 +134,49 @@ function initDB() {
         )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_channel_snapshot_time ON channel_snapshots(snapshot_time)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_channel_snapshot_channel ON channel_snapshots(channel_id)`);
+        
+        // ==================== 多密钥统计聚合表 ====================
+        // Per-key hourly aggregates for multi-key channels. Mirrors the stats
+        // table schema but adds key_index to the primary key. Only populated
+        // for logs where other.admin_info.is_multi_key == true.
+        db.run(`CREATE TABLE IF NOT EXISTS key_stats (
+            channel_id INTEGER,
+            key_index INTEGER,
+            model_name TEXT,
+            hour INTEGER,
+            prompt_tokens INTEGER DEFAULT 0,
+            completion_tokens INTEGER DEFAULT 0,
+            cache_hit_tokens INTEGER DEFAULT 0,
+            tokens INTEGER DEFAULT 0,
+            request_count INTEGER DEFAULT 0,
+            quota INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
+            avg_latency INTEGER DEFAULT 0,
+            cache_creation_tokens INTEGER DEFAULT 0,
+            image_tokens INTEGER DEFAULT 0,
+            audio_tokens INTEGER DEFAULT 0,
+            reasoning_requests INTEGER DEFAULT 0,
+            tool_calls INTEGER DEFAULT 0,
+            tool_quota INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            first_token_ms_sum INTEGER DEFAULT 0,
+            first_token_count INTEGER DEFAULT 0,
+            use_time_sum_sec INTEGER DEFAULT 0,
+            total_input_tokens INTEGER DEFAULT 0,
+            PRIMARY KEY (channel_id, key_index, model_name, hour)
+        )`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_key_stats_channel_hour ON key_stats(channel_id, hour)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_key_stats_key_hour ON key_stats(channel_id, key_index, hour)`);
+        // Migration: key_stats 表添加新列（与 stats 保持一致）
+        db.all("PRAGMA table_info(key_stats)", (err, columns) => {
+            if (!err && columns) {
+                const keyColumnNames = columns.map(col => col.name);
+                addExtendedMetricColumns('key_stats', keyColumnNames);
+                if (!keyColumnNames.includes('avg_latency')) {
+                    db.run("ALTER TABLE key_stats ADD COLUMN avg_latency INTEGER DEFAULT 0");
+                }
+            }
+        });
 
         // Migration: 添加新列（如果不存在）
         db.all("PRAGMA table_info(alerts)", (err, columns) => {
