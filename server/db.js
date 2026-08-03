@@ -134,6 +134,18 @@ function initDB() {
         )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_channel_snapshot_time ON channel_snapshots(snapshot_time)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_channel_snapshot_channel ON channel_snapshots(channel_id)`);
+        // Migration: channel_snapshots 添加 used_quota 和 key_status_json 列
+        db.all("PRAGMA table_info(channel_snapshots)", (err, columns) => {
+            if (!err && columns) {
+                const snapColNames = columns.map(col => col.name);
+                if (!snapColNames.includes('used_quota')) {
+                    db.run("ALTER TABLE channel_snapshots ADD COLUMN used_quota INTEGER DEFAULT 0");
+                }
+                if (!snapColNames.includes('key_status_json')) {
+                    db.run("ALTER TABLE channel_snapshots ADD COLUMN key_status_json TEXT");
+                }
+            }
+        });
         
         // ==================== 多密钥统计聚合表 ====================
         // Per-key hourly aggregates for multi-key channels. Mirrors the stats

@@ -550,19 +550,52 @@ async function syncChannelSnapshots() {
                 id: true,
                 status: true,
                 responseTime: true,
-                balance: true
+                balance: true,
+                usedQuota: true,
+                channelInfo: true
             }
         });
 
         const now = Math.floor(Date.now() / 1000);
         
         const stmt = db.prepare(`
-            INSERT INTO channel_snapshots (channel_id, status, response_time, balance, snapshot_time)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO channel_snapshots (channel_id, status, response_time, balance, used_quota, key_status_json, snapshot_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
 
         channels.forEach(ch => {
-            stmt.run(ch.id, ch.status, ch.responseTime || 0, ch.balance || 0, now);
+            // For multi-key channels, snapshot the per-key status list so we
+            // can track when individual keys were auto-disabled over time.
+            let keyStatusJson = null;
+            if (ch.channelInfo) {
+                try {
+                    const info = typeof ch.channelInfo === 'string'
+                        ? JSON.parse(ch.channelInfo)
+                        : ch.channelInfo;
+                    if (info && info.is_multi_key) {
+                        keyStatusJson = JSON.stringify({
+                            multi_key_size: info.multi_key_size || 0,
+                            multi_key_mode: info.multi_key_mode || null,
+                            status_list: info.multi_key_status_list || {},
+                            disabled_reason: info.multi_key_disabled_reason || {},
+                            disabled_time: info.multi_key_disabled_time || {},
+                            polling_index: info.multi_key_polling_index || 0
+                        });
+                    }
+                } catch {
+                    // Ignore parse errors; key_status_json stays null
+                }
+            }
+
+            stmt.run(
+                ch.id,
+                ch.status,
+                ch.responseTime || 0,
+                ch.balance || 0,
+                Number(ch.usedQuota) || 0,
+                keyStatusJson,
+                now
+            );
         });
 
         stmt.finalize();
