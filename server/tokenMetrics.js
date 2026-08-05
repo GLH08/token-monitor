@@ -64,18 +64,50 @@ function parseCacheCreationTokens(parsed) {
         return 0;
     }
 
-    const normalized = getNestedNumber(parsed, ['cache_write_tokens'])
-        || getNestedNumber(parsed, ['usage', 'cache_write_tokens']);
+    // New-api normally normalizes these into top-level cache_write_tokens.
+    // Older logs and pass-through responses can retain the provider-native
+    // nested locations, so inspect all equivalent paths and take the largest
+    // value rather than summing duplicated representations.
+    const normalized = [
+        ['cache_write_tokens'],
+        ['cacheWriteTokens'],
+        ['usage', 'cache_write_tokens'],
+        ['usage', 'cacheWriteTokens'],
+        ['prompt_tokens_details', 'cache_write_tokens'],
+        ['input_tokens_details', 'cache_write_tokens'],
+        ['usage', 'prompt_tokens_details', 'cache_write_tokens'],
+        ['usage', 'input_tokens_details', 'cache_write_tokens']
+    ].reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
     if (normalized > 0) {
         return normalized;
     }
 
-    const base = getNestedNumber(parsed, ['cache_creation_tokens'])
-        || getNestedNumber(parsed, ['usage', 'cache_creation_tokens']);
-    const t5m = getNestedNumber(parsed, ['cache_creation_tokens_5m'])
-        || getNestedNumber(parsed, ['usage', 'cache_creation_tokens_5m']);
-    const t1h = getNestedNumber(parsed, ['cache_creation_tokens_1h'])
-        || getNestedNumber(parsed, ['usage', 'cache_creation_tokens_1h']);
+    const base = [
+        ['cache_creation_tokens'],
+        ['cacheCreationTokens'],
+        ['cache_creation_input_tokens'],
+        ['cached_creation_tokens'],
+        ['usage', 'cache_creation_tokens'],
+        ['usage', 'cacheCreationTokens'],
+        ['usage', 'cache_creation_input_tokens'],
+        ['usage', 'cached_creation_tokens']
+    ].reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
+    const t5m = [
+        ['cache_creation_tokens_5m'],
+        ['cache_creation_input_tokens_5m'],
+        ['usage', 'cache_creation_tokens_5m'],
+        ['usage', 'cache_creation_input_tokens_5m'],
+        ['cache_creation', 'ephemeral_5m_input_tokens'],
+        ['usage', 'cache_creation', 'ephemeral_5m_input_tokens']
+    ].reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
+    const t1h = [
+        ['cache_creation_tokens_1h'],
+        ['cache_creation_input_tokens_1h'],
+        ['usage', 'cache_creation_tokens_1h'],
+        ['usage', 'cache_creation_input_tokens_1h'],
+        ['cache_creation', 'ephemeral_1h_input_tokens'],
+        ['usage', 'cache_creation', 'ephemeral_1h_input_tokens']
+    ].reduce((max, path) => Math.max(max, getNestedNumber(parsed, path)), 0);
 
     if (t5m > 0 || t1h > 0) {
         return Math.max(base, t5m + t1h);

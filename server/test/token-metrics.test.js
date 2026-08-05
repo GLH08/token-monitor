@@ -125,6 +125,24 @@ test('parseCacheCreationTokens falls back to base when no split present', () => 
     assert.equal(parseCacheCreationTokens({}), 0);
 });
 
+test('parseCacheCreationTokens recognizes provider-native nested cache-write fields', () => {
+    assert.equal(parseCacheCreationTokens({
+        input_tokens_details: { cache_write_tokens: 123 }
+    }), 123);
+    assert.equal(parseCacheCreationTokens({
+        usage: { prompt_tokens_details: { cache_write_tokens: 456 } }
+    }), 456);
+    assert.equal(parseCacheCreationTokens({
+        usage: {
+            cache_creation_input_tokens: 40,
+            cache_creation: {
+                ephemeral_5m_input_tokens: 30,
+                ephemeral_1h_input_tokens: 25
+            }
+        }
+    }), 55);
+});
+
 // --- image tokens ---
 
 test('parseImageTokens reads image_output', () => {
