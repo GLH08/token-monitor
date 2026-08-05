@@ -61,6 +61,35 @@ function applyRequestIdFilter(where, rawRequestId) {
     ];
 }
 
+/**
+ * Summarize token dimensions from logs.other without changing the existing
+ * `total_tokens` meaning (prompt + completion). Cache tokens are reported as
+ * separate dimensions, while total_input_tokens/throughput_total use the
+ * normalized semantics from tokenMetrics.js.
+ */
+function summarizeLogTokenStats(logs = []) {
+    return logs.reduce((totals, log) => {
+        if (!log) return totals;
+        const metrics = metricsFromLog(log);
+        totals.total_prompt_tokens += metrics.promptTokens;
+        totals.total_completion_tokens += metrics.completionTokens;
+        totals.total_tokens += metrics.tokens;
+        totals.total_cache_read_tokens += metrics.cacheHitTokens;
+        totals.total_cache_write_tokens += metrics.cacheCreationTokens;
+        totals.total_input_tokens += metrics.totalInputTokens;
+        totals.throughput_total += metrics.throughputTotal;
+        return totals;
+    }, {
+        total_tokens: 0,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        total_cache_read_tokens: 0,
+        total_cache_write_tokens: 0,
+        total_input_tokens: 0,
+        throughput_total: 0
+    });
+}
+
 router.get('/logs', async (req, res) => {
     const pagination = parsePagination(req.query, { pageSize: 20, maxPageSize: 200 });
     const timeRange = parseTimeRange(req.query);
@@ -84,7 +113,7 @@ router.get('/logs', async (req, res) => {
             if (timeRange.endTs !== null) where.createdAt.lte = timeRange.endTs;
         }
 
-        const [total, logs, stats] = await prisma.$transaction([
+        const [total, logs, stats, tokenStatsLogs] = await prisma.$transaction([
             prisma.log.count({ where }),
             prisma.log.findMany({
                 where,
@@ -102,8 +131,14 @@ router.get('/logs', async (req, res) => {
             prisma.log.aggregate({
                 where,
                 _sum: { promptTokens: true, completionTokens: true, quota: true }
+            }),
+            prisma.log.findMany({
+                where,
+                select: { promptTokens: true, completionTokens: true, other: true }
             })
         ]);
+
+        const tokenStats = summarizeLogTokenStats(tokenStatsLogs);
 
         res.json({
             data: logs.map(l => {
@@ -128,6 +163,8 @@ router.get('/logs', async (req, res) => {
                     audio_tokens: m.audioInputTokens + m.audioOutputTokens,
                     audio_input_tokens: m.audioInputTokens,
                     audio_output_tokens: m.audioOutputTokens,
+                    total_input_tokens: m.totalInputTokens,
+                    throughput_total: m.throughputTotal,
                     totalTokens: inputTokens + outputTokens,
                     billingQuota,
                     cost: billingQuota / QUOTA_PER_UNIT,
@@ -144,7 +181,7 @@ router.get('/logs', async (req, res) => {
             }),
             total, page: pagination.page, pageSize: pagination.pageSize,
             stats: {
-                total_tokens: (stats._sum.promptTokens || 0) + (stats._sum.completionTokens || 0),
+                ...tokenStats,
                 total_cost: (stats._sum.quota || 0) / QUOTA_PER_UNIT
             }
         });
@@ -242,3 +279,4 @@ router.get('/errors/summary', async (req, res) => {
 module.exports = router;
 module.exports.extractRequestId = extractRequestId;
 module.exports.applyRequestIdFilter = applyRequestIdFilter;
+module.exports.summarizeLogTokenStats = summarizeLogTokenStats;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { type ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, FileText, RotateCcw, Search, AlertCircle } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Database, FileText, RotateCcw, Search, AlertCircle } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import KpiStrip from '../components/KpiStrip';
 import DataTable from '../components/DataTable';
@@ -181,10 +181,20 @@ const LogDetailsDialog = ({
                                 value={formatNumber(log.cache_write_tokens, 0)}
                                 accent="text-sky-400"
                             />
+                            <BreakdownRow
+                                label="总输入（含缓存）"
+                                value={formatNumber(log.total_input_tokens, 0)}
+                                accent="text-violet-400"
+                            />
+                            <BreakdownRow
+                                label="吞吐总量（输入+输出）"
+                                value={formatNumber(log.throughput_total, 0)}
+                                accent="text-primary"
+                            />
                             <BreakdownRow label="图像" value={formatNumber(log.image_tokens, 0)} />
                             <BreakdownRow label="音频" value={formatNumber(log.audio_tokens, 0)} />
                             <BreakdownRow
-                                label="合计"
+                                label="基础合计（输入+输出）"
                                 value={formatNumber(log.totalTokens, 0)}
                                 accent="text-primary"
                             />
@@ -301,12 +311,20 @@ const Logs = () => {
     const currentPage = data?.page ?? page;
     const pageSize = data?.pageSize ?? PAGE_SIZE;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const safeStats = data?.stats ?? { total_tokens: 0, total_cost: 0 };
+    const safeStats = data?.stats ?? {
+        total_tokens: 0,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        total_cache_read_tokens: 0,
+        total_cache_write_tokens: 0,
+        total_input_tokens: 0,
+        throughput_total: 0,
+        total_cost: 0,
+    };
 
     const formatStatsCost = (): string => {
         const usd = safeStats.total_cost;
         if (currencyMode === 'cny') return formatCny(usd * CNY_USD_RATE);
-        if (currencyMode === 'token') return formatTokens(safeStats.total_tokens);
         return formatUsd(usd);
     };
 
@@ -432,7 +450,7 @@ const Logs = () => {
         },
         {
             id: 'cost',
-            header: '费用',
+            header: currencyMode === 'token' ? '计费 Token' : '费用',
             cell: ({ row }) => (
                 <span className="font-mono text-xs tabular-nums">
                     {formatCostByMode(row.original.quota, row.original.totalTokens, currencyMode)}
@@ -458,7 +476,16 @@ const Logs = () => {
     const kpiItems: StatCardProps[] = [
         { label: '筛选结果', value: formatNumber(total, 0), icon: FileText, loading: isLoading },
         { label: '总 Token', value: formatTokens(safeStats.total_tokens), icon: Search, loading: isLoading },
-        { label: '总费用', value: formatStatsCost(), icon: AlertCircle, loading: isLoading },
+        { label: '输入', value: formatTokens(safeStats.total_prompt_tokens), icon: ArrowDown, loading: isLoading },
+        { label: '输出', value: formatTokens(safeStats.total_completion_tokens), icon: ArrowUp, loading: isLoading },
+        { label: '缓存读取', value: formatTokens(safeStats.total_cache_read_tokens), icon: Database, loading: isLoading },
+        { label: '缓存写入', value: formatTokens(safeStats.total_cache_write_tokens), icon: Database, loading: isLoading },
+        {
+            label: currencyMode === 'token' ? '总费用 (USD)' : '总费用',
+            value: formatStatsCost(),
+            icon: AlertCircle,
+            loading: isLoading,
+        },
     ];
 
     return (

@@ -223,6 +223,10 @@ export interface LogRow {
     audio_tokens: number;
     audio_input_tokens: number;
     audio_output_tokens: number;
+    /** Total input including cache tokens under normalized semantics. */
+    total_input_tokens: number;
+    /** Total input including cache plus completion tokens. */
+    throughput_total: number;
     /** First-response time in ms (TTFT); 0 when non-streaming. */
     frt_ms: number;
     /** Whole-request time in seconds (logs.use_time). */
@@ -246,6 +250,14 @@ export interface LogsResponse {
     pageSize: number;
     stats: {
         total_tokens: number;
+        total_prompt_tokens: number;
+        total_completion_tokens: number;
+        total_cache_read_tokens: number;
+        total_cache_write_tokens: number;
+        /** Total input including cache tokens under normalized semantics. */
+        total_input_tokens: number;
+        /** Total input including cache plus completion tokens. */
+        throughput_total: number;
         total_cost: number;
     };
 }
