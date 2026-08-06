@@ -173,33 +173,41 @@ const Overview = () => {
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="flex min-h-[360px] flex-col">
                     <CardHeader>
                         <CardTitle>实时流量</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="flex flex-1 flex-col gap-3">
                         {realtime.isError ? (
                             <EmptyState icon={AlertCircle} title="加载失败" description="实时数据获取失败" />
+                        ) : realtime.isLoading && !rt ? (
+                            <div className="flex flex-1 flex-col gap-3">
+                                {[0, 1, 2].map((i) => (
+                                    <div key={i} className="h-20 animate-pulse rounded-2xl bg-white/70 dark:bg-muted/40" />
+                                ))}
+                            </div>
                         ) : (
                             <>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">QPS</span>
-                                    <span className="font-mono text-xl font-bold tabular-nums">
-                                        {rt ? formatNumber(rt.qps) : '--'}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">TPS</span>
-                                    <span className="font-mono text-xl font-bold tabular-nums">
-                                        {rt ? formatCompact(rt.tps) : '--'}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">活跃渠道</span>
-                                    <span className="font-mono text-xl font-bold tabular-nums">
-                                        {rt ? formatNumber(rt.activeChannels) : '--'}
-                                    </span>
-                                </div>
+                                {[
+                                    { label: 'QPS', value: rt ? formatNumber(rt.qps) : '--' },
+                                    { label: 'TPS', value: rt ? formatCompact(rt.tps) : '--' },
+                                    {
+                                        label: '活跃渠道',
+                                        value: rt ? formatNumber(rt.activeChannels, 0) : '--',
+                                    },
+                                ].map((item) => (
+                                    <div
+                                        key={item.label}
+                                        className="flex min-h-[4.5rem] flex-1 items-center justify-between rounded-2xl bg-white px-5 py-4 dark:bg-background/60"
+                                    >
+                                        <span className="text-sm font-medium text-muted-foreground">
+                                            {item.label}
+                                        </span>
+                                        <span className="font-display text-[28px] font-normal tabular-nums tracking-tight">
+                                            {item.value}
+                                        </span>
+                                    </div>
+                                ))}
                             </>
                         )}
                     </CardContent>

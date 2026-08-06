@@ -40,7 +40,7 @@ const RankBar = ({ data, height = 300, loading = false, className, valueFormatte
                     ? (params: { value: unknown }) => valueFormatter(Number(params.value))
                     : undefined,
             },
-            grid: { left: 8, right: 24, top: 8, bottom: 8, containLabel: true },
+            grid: { left: 8, right: 48, top: 8, bottom: 8, containLabel: true },
             xAxis: {
                 type: 'value',
                 axisLine: { show: false },
@@ -51,7 +51,15 @@ const RankBar = ({ data, height = 300, loading = false, className, valueFormatte
                 type: 'category',
                 data: ranked.map((item) => item.name).reverse(),
                 axisLine: { lineStyle: { color: theme.axisLineColor } },
-                axisLabel: { color: theme.textColor },
+                axisLabel: {
+                    color: theme.textColor,
+                    width: 120,
+                    overflow: 'truncate',
+                    ellipsis: '…',
+                    // Keep long model names from colliding with bars
+                    formatter: (value: string) =>
+                        value && value.length > 18 ? `${value.slice(0, 18)}…` : value,
+                },
             },
             color: pickColors(1),
             series: [

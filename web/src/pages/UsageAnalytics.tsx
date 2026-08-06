@@ -299,7 +299,7 @@ const UsageAnalytics = () => {
                         ) : pieData.length === 0 && !breakdown.isLoading ? (
                             <EmptyState title="暂无数据" />
                         ) : (
-                            <DistributionPie data={pieData} loading={breakdown.isLoading} height={300} />
+                            <DistributionPie data={pieData} loading={breakdown.isLoading} height={320} topN={6} />
                         )}
                     </CardContent>
                 </Card>

@@ -15,14 +15,18 @@ interface DistributionPieProps {
     height?: number;
     loading?: boolean;
     className?: string;
-    /** Cap to the top-N slices by value and merge the rest into an "其他" slice.
-     * Keeps the legend + labels readable when there are many models. */
+    /** Cap to top-N slices; merge rest into "其他". */
     topN?: number;
 }
 
-/** Donut distribution chart. With many slices, on-pie labels overlap and the
- * legend overflows, so labels are hidden (legend + tooltip carry the names) and
- * the data is capped to top-N + "其他". */
+function truncateName(name: string, max = 18): string {
+    if (!name) return '';
+    return name.length > max ? `${name.slice(0, max)}…` : name;
+}
+
+/**
+ * Donut chart with bottom scrollable legend (avoids legend/pie overlap for long model names).
+ */
 const DistributionPie = ({
     data,
     height = 300,
@@ -49,31 +53,51 @@ const DistributionPie = ({
                 backgroundColor: theme.tooltipBg,
                 borderColor: theme.tooltipBorder,
                 textStyle: { color: theme.textColor },
-                formatter: '{b}: {c} ({d}%)',
+                // Full name in tooltip even when legend is truncated
+                formatter: (params: { name: string; value: number; percent: number }) =>
+                    `${params.name}<br/>${params.value} (${params.percent}%)`,
             },
             legend: {
                 type: 'scroll' as const,
-                orient: 'vertical' as const,
-                right: 0,
-                top: 'middle' as const,
-                textStyle: { color: theme.textColor },
+                orient: 'horizontal' as const,
+                bottom: 0,
+                left: 'center',
+                width: '92%',
+                itemWidth: 10,
+                itemHeight: 10,
+                itemGap: 12,
+                pageIconSize: 10,
+                textStyle: {
+                    color: theme.textColor,
+                    fontSize: 11,
+                    width: 96,
+                    overflow: 'truncate' as const,
+                    ellipsis: '…',
+                },
+                formatter: (name: string) => truncateName(name, 14),
             },
             color: pickColors(capped.length),
             series: [
                 {
                     name: '占比',
                     type: 'pie',
-                    radius: ['40%', '70%'],
-                    center: ['38%', '50%'],
+                    // Leave room above the bottom legend so they never overlap
+                    radius: ['38%', '62%'],
+                    center: ['50%', '42%'],
                     avoidLabelOverlap: true,
-                    // Hide on-pie labels (they overlap with many slices); the
-                    // scrollable legend + tooltip carry the names/values.
                     label: { show: false },
                     labelLine: { show: false },
                     emphasis: {
-                        label: { show: true, fontSize: 14, fontWeight: 'bold', color: theme.textColor },
+                        label: {
+                            show: true,
+                            fontSize: 12,
+                            fontWeight: 'bold',
+                            color: theme.textColor,
+                            formatter: (p: { name: string }) => truncateName(p.name, 16),
+                        },
                     },
-                    data: capped,
+                    data: capped.map((d) => ({ ...d, // keep full name for tooltip
+                    })),
                 },
             ],
         }),

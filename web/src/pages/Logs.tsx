@@ -111,8 +111,8 @@ const LogDetailsDialog = ({
     masked: boolean;
 }) => (
     <Dialog open={!!log} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-            <DialogHeader className="-mx-1 border-b border-border/50 pb-4">
+        <DialogContent className="max-w-2xl">
+            <DialogHeader className="border-b border-border/50 pb-4">
                 <DialogTitle>日志详情</DialogTitle>
                 <DialogDescription>日志 ID: {log?.id ?? '--'}</DialogDescription>
             </DialogHeader>
@@ -342,7 +342,11 @@ const Logs = () => {
             accessorKey: 'type',
             header: '类型',
             cell: () => (
-                <Badge className="border-transparent bg-cyan-500/15 text-cyan-400">消费</Badge>
+                <div className="min-w-[3.5rem]">
+                    <Badge className="border-transparent bg-cyan-500/15 text-cyan-700 dark:text-cyan-400">
+                        消费
+                    </Badge>
+                </div>
             ),
         },
         {
@@ -465,9 +469,11 @@ const Logs = () => {
                 if (!src) return <span className="text-xs text-muted-foreground/40">--</span>;
                 const meta = BILLING_SOURCE_META[src];
                 return (
-                    <Badge className={cn('border-transparent', meta?.className ?? '')}>
-                        {meta?.label ?? src}
-                    </Badge>
+                    <div className="min-w-[3.5rem]">
+                        <Badge className={cn('border-transparent', meta?.className ?? '')}>
+                            {meta?.label ?? src}
+                        </Badge>
+                    </div>
                 );
             },
         },
