@@ -19,12 +19,17 @@ interface RankBarProps {
     valueFormatter?: (value: number) => string;
 }
 
+function truncateLabel(name: string, max = 14): string {
+    if (!name) return '';
+    return name.length > max ? `${name.slice(0, max)}…` : name;
+}
+
 /** Horizontal ranking bar chart (largest at top). */
 const RankBar = ({ data, height = 300, loading = false, className, valueFormatter }: RankBarProps) => {
     const theme = useChartTheme();
 
     const ranked = useMemo(
-        () => [...data].sort((a, b) => b.value - a.value),
+        () => [...data].sort((a, b) => b.value - a.value).slice(0, 10),
         [data],
     );
 
@@ -35,30 +40,46 @@ const RankBar = ({ data, height = 300, loading = false, className, valueFormatte
                 axisPointer: { type: 'shadow' },
                 backgroundColor: theme.tooltipBg,
                 borderColor: theme.tooltipBorder,
-                textStyle: { color: theme.textColor },
-                valueFormatter: valueFormatter
-                    ? (params: { value: unknown }) => valueFormatter(Number(params.value))
-                    : undefined,
+                textStyle: { color: theme.textColor, fontSize: 12 },
+                // Full name + formatted value (axis labels may be truncated)
+                formatter: (params: unknown) => {
+                    const list = Array.isArray(params) ? params : [params];
+                    const p = list[0] as { name?: string; value?: unknown; dataIndex?: number };
+                    const fullName =
+                        ranked[ranked.length - 1 - (p.dataIndex ?? 0)]?.name ?? p.name ?? '';
+                    const raw = Number(p.value);
+                    const val = valueFormatter ? valueFormatter(raw) : String(raw);
+                    return `${fullName}<br/>${val}`;
+                },
             },
-            grid: { left: 8, right: 48, top: 8, bottom: 8, containLabel: true },
+            // Extra right room for bar value labels; left for category names
+            grid: { left: 12, right: 56, top: 12, bottom: 12, containLabel: true },
             xAxis: {
                 type: 'value',
                 axisLine: { show: false },
-                axisLabel: { color: theme.textColor },
-                splitLine: { lineStyle: { color: theme.splitLineColor } },
+                axisTick: { show: false },
+                // Hide dense numeric ticks — values are on bar labels / tooltip
+                axisLabel: { show: false },
+                splitLine: {
+                    show: true,
+                    lineStyle: { color: theme.splitLineColor, type: 'dashed' },
+                },
             },
             yAxis: {
                 type: 'category',
                 data: ranked.map((item) => item.name).reverse(),
+                axisTick: { show: false },
                 axisLine: { lineStyle: { color: theme.axisLineColor } },
                 axisLabel: {
                     color: theme.textColor,
-                    width: 120,
+                    fontSize: 11,
+                    // Prevent name pile-up on the category axis
+                    interval: 0,
+                    hideOverlap: true,
+                    width: 100,
                     overflow: 'truncate',
                     ellipsis: '…',
-                    // Keep long model names from colliding with bars
-                    formatter: (value: string) =>
-                        value && value.length > 18 ? `${value.slice(0, 18)}…` : value,
+                    formatter: (value: string) => truncateLabel(value, 14),
                 },
             },
             color: pickColors(1),
@@ -66,12 +87,15 @@ const RankBar = ({ data, height = 300, loading = false, className, valueFormatte
                 {
                     type: 'bar',
                     data: ranked.map((item) => item.value).reverse(),
-                    barMaxWidth: 24,
-                    itemStyle: { borderRadius: [0, 4, 4, 0] },
+                    barMaxWidth: 18,
+                    barCategoryGap: '40%',
+                    itemStyle: { borderRadius: [0, 6, 6, 0] },
                     label: {
                         show: true,
                         position: 'right',
+                        distance: 6,
                         color: theme.textColor,
+                        fontSize: 11,
                         formatter: valueFormatter
                             ? (params: { value: unknown }) => valueFormatter(Number(params.value))
                             : undefined,

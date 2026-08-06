@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { Gauge, AlertCircle } from 'lucide-react';
+import { Gauge, AlertCircle, Activity, Timer, Zap, CheckCircle2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
+import KpiStrip from '../components/KpiStrip';
 import TrendChart from '../components/charts/TrendChart';
 import DataTable from '../components/DataTable';
 import EmptyState from '../components/EmptyState';
@@ -10,6 +11,7 @@ import { useUIStore } from '../stores/ui';
 import { formatHourLabel, formatEpochSeconds, presetToRange } from '../lib/time';
 import { formatNumber, formatPercent, formatLatency } from '../lib/format';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { StatCardProps } from '../components/StatCard';
 import type { LatencyTrendPoint } from '../api/types';
 
 interface SlowRequest {
@@ -37,19 +39,67 @@ const Performance = () => {
         { title: '成功率', series: [{ name: '成功率', data: trend.map((p) => p.success_rate) }] },
     ];
 
+    const kpiItems: StatCardProps[] = useMemo(() => {
+        const n = trend.length;
+        const sumRpm = n ? trend.reduce((acc, p) => acc + p.rpm, 0) : 0;
+        const avgLat = n ? trend.reduce((acc, p) => acc + p.avg_latency_ms, 0) / n : NaN;
+        const avgTtft = n ? trend.reduce((acc, p) => acc + p.avg_ttft_ms, 0) / n : NaN;
+        const avgSuccess = n ? trend.reduce((acc, p) => acc + p.success_rate, 0) / n : NaN;
+        return [
+            {
+                label: '总请求（窗口）',
+                value: n ? formatNumber(sumRpm, 0) : '--',
+                icon: Activity,
+                loading: isLoading,
+            },
+            {
+                label: '平均延迟',
+                value: Number.isFinite(avgLat) ? formatLatency(avgLat) : '--',
+                icon: Timer,
+                loading: isLoading,
+            },
+            {
+                label: '平均 TTFT',
+                value: Number.isFinite(avgTtft) ? formatLatency(avgTtft) : '--',
+                icon: Zap,
+                loading: isLoading,
+            },
+            {
+                label: '平均成功率',
+                value: Number.isFinite(avgSuccess) ? formatPercent(avgSuccess) : '--',
+                icon: CheckCircle2,
+                loading: isLoading,
+            },
+        ];
+    }, [trend, isLoading]);
+
     const slowColumns: ColumnDef<SlowRequest>[] = [
         { accessorKey: 'id', header: '日志 ID', cell: ({ row }) => formatNumber(row.original.id, 0) },
-        { accessorKey: 'modelName', header: '模型', cell: ({ row }) => <span className="font-medium">{row.original.modelName}</span> },
+        {
+            accessorKey: 'modelName',
+            header: '模型',
+            cell: ({ row }) => (
+                <span className="block max-w-[160px] truncate font-medium" title={row.original.modelName}>
+                    {row.original.modelName}
+                </span>
+            ),
+        },
         { accessorKey: 'channelId', header: '渠道 ID', cell: ({ row }) => formatNumber(row.original.channelId, 0) },
         {
             accessorKey: 'useTime',
             header: '耗时',
-            cell: ({ row }) => <span className="font-mono tabular-nums">{row.original.useTime.toFixed(2)} s</span>,
+            cell: ({ row }) => (
+                <span className="font-mono tabular-nums">{row.original.useTime.toFixed(2)} s</span>
+            ),
         },
         {
             accessorKey: 'createdAt',
             header: '时间',
-            cell: ({ row }) => formatEpochSeconds(Number(row.original.createdAt)),
+            cell: ({ row }) => (
+                <span className="whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground">
+                    {formatEpochSeconds(Number(row.original.createdAt))}
+                </span>
+            ),
         },
     ];
 
@@ -65,6 +115,8 @@ const Performance = () => {
                 </Card>
             ) : (
                 <>
+                    <KpiStrip items={kpiItems} />
+
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                         {charts.map((c) => (
                             <Card key={c.title}>
@@ -109,33 +161,6 @@ const Performance = () => {
                             />
                         </CardContent>
                     </Card>
-
-                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                        <Card className="p-4">
-                            <div className="text-sm text-muted-foreground">总请求（窗口）</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums">
-                                {trend.length ? formatNumber(trend.reduce((acc, p) => acc + p.rpm, 0), 0) : '--'}
-                            </div>
-                        </Card>
-                        <Card className="p-4">
-                            <div className="text-sm text-muted-foreground">平均延迟</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums">
-                                {trend.length ? formatLatency(trend.reduce((acc, p) => acc + p.avg_latency_ms, 0) / trend.length) : '--'}
-                            </div>
-                        </Card>
-                        <Card className="p-4">
-                            <div className="text-sm text-muted-foreground">平均 TTFT</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums">
-                                {trend.length ? formatLatency(trend.reduce((acc, p) => acc + p.avg_ttft_ms, 0) / trend.length) : '--'}
-                            </div>
-                        </Card>
-                        <Card className="p-4">
-                            <div className="text-sm text-muted-foreground">平均成功率</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums">
-                                {trend.length ? formatPercent(trend.reduce((acc, p) => acc + p.success_rate, 0) / trend.length) : '--'}
-                            </div>
-                        </Card>
-                    </div>
                 </>
             )}
         </div>

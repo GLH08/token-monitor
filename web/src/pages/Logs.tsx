@@ -381,82 +381,116 @@ const Logs = () => {
         },
         {
             accessorKey: 'channelId',
-            header: '渠道',
+            header: () => <span className="whitespace-nowrap">渠道</span>,
             cell: ({ row }) => (
-                <span className="font-mono text-xs tabular-nums">#{row.original.channelId}</span>
+                <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                    #{row.original.channelId}
+                </span>
             ),
         },
         {
             id: 'tokens',
-            header: 'Tokens (入/出)',
+            // Short single-line header; full meaning in title
+            header: () => (
+                <span className="whitespace-nowrap" title="Tokens（输入/输出）">
+                    Tokens
+                </span>
+            ),
             cell: ({ row }) => {
                 const r = row.original;
                 const hasCache = r.cache_read_tokens > 0 || r.cache_write_tokens > 0;
                 return (
-                    <div className="space-y-0.5">
-                        <div className="font-mono text-xs tabular-nums">
-                            <span className="text-muted-foreground">{formatCompact(r.promptTokens)}</span>
-                            <span className="text-muted-foreground/50"> / </span>
-                            <span>{formatCompact(r.completionTokens)}</span>
-                        </div>
+                    <span
+                        className="inline-flex whitespace-nowrap font-mono text-xs tabular-nums"
+                        title={
+                            hasCache
+                                ? `入 ${formatCompact(r.promptTokens)} / 出 ${formatCompact(r.completionTokens)} · 缓存↓${formatCompact(r.cache_read_tokens)}${r.cache_write_tokens > 0 ? ` ↑${formatCompact(r.cache_write_tokens)}` : ''}`
+                                : `入 ${formatCompact(r.promptTokens)} / 出 ${formatCompact(r.completionTokens)}`
+                        }
+                    >
+                        <span className="text-muted-foreground">{formatCompact(r.promptTokens)}</span>
+                        <span className="text-muted-foreground/50">/</span>
+                        <span>{formatCompact(r.completionTokens)}</span>
                         {hasCache ? (
-                            <div className="whitespace-nowrap font-mono text-[10px] tabular-nums">
-                                <span className="text-amber-400">↓{formatCompact(r.cache_read_tokens)}</span>
+                            <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
+                                ↓{formatCompact(r.cache_read_tokens)}
                                 {r.cache_write_tokens > 0 ? (
-                                    <span className="text-sky-400"> ↑{formatCompact(r.cache_write_tokens)}</span>
+                                    <span className="text-sky-600 dark:text-sky-400">
+                                        ↑{formatCompact(r.cache_write_tokens)}
+                                    </span>
                                 ) : null}
-                            </div>
+                            </span>
                         ) : null}
-                    </div>
+                    </span>
                 );
             },
         },
         {
             id: 'media',
-            header: '图/音',
+            header: () => (
+                <span className="whitespace-nowrap" title="图像 / 音频 Tokens">
+                    图/音
+                </span>
+            ),
             cell: ({ row }) => {
                 const r = row.original;
                 if (r.image_tokens <= 0 && r.audio_tokens <= 0) {
-                    return <span className="text-xs text-muted-foreground/40">--</span>;
+                    return <span className="whitespace-nowrap text-xs text-muted-foreground/40">--</span>;
                 }
                 return (
-                    <div className="whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground">
-                        <span>图{formatCompact(r.image_tokens)}</span>
-                        {r.audio_tokens > 0 ? <span className="ml-1">音{formatCompact(r.audio_tokens)}</span> : null}
-                    </div>
+                    <span className="whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground">
+                        {r.image_tokens > 0 ? `图${formatCompact(r.image_tokens)}` : ''}
+                        {r.image_tokens > 0 && r.audio_tokens > 0 ? ' ' : ''}
+                        {r.audio_tokens > 0 ? `音${formatCompact(r.audio_tokens)}` : ''}
+                    </span>
                 );
             },
         },
         {
             accessorKey: 'frt_ms',
-            header: 'TTFT',
+            header: () => <span className="whitespace-nowrap">TTFT</span>,
             cell: ({ row }) => {
                 const ms = row.original.frt_ms;
                 if (!ms || ms <= 0) return <span className="text-xs text-muted-foreground/40">--</span>;
-                return <span className={cn('font-mono text-xs tabular-nums', latencyColor(ms))}>{formatTTFT(ms)}</span>;
+                return (
+                    <span className={cn('whitespace-nowrap font-mono text-xs tabular-nums', latencyColor(ms))}>
+                        {formatTTFT(ms)}
+                    </span>
+                );
             },
         },
         {
             accessorKey: 'tps',
-            header: 'TPS',
+            header: () => <span className="whitespace-nowrap">TPS</span>,
             cell: ({ row }) => (
-                <span className="font-mono text-xs tabular-nums">{formatTPS(row.original.tps)}</span>
+                <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                    {formatTPS(row.original.tps)}
+                </span>
             ),
         },
         {
             accessorKey: 'use_time_sec',
-            header: '耗时',
+            header: () => <span className="whitespace-nowrap">耗时</span>,
             cell: ({ row }) => (
-                <span className={cn('font-mono text-xs tabular-nums', secondsColor(row.original.use_time_sec))}>
+                <span
+                    className={cn(
+                        'whitespace-nowrap font-mono text-xs tabular-nums',
+                        secondsColor(row.original.use_time_sec),
+                    )}
+                >
                     {row.original.use_time_sec.toFixed(2)}s
                 </span>
             ),
         },
         {
             id: 'cost',
-            header: currencyMode === 'token' ? '计费 Token' : '费用',
+            header: () => (
+                <span className="whitespace-nowrap" title={currencyMode === 'token' ? '计费 Token' : '费用'}>
+                    {currencyMode === 'token' ? '额度' : '费用'}
+                </span>
+            ),
             cell: ({ row }) => (
-                <span className="font-mono text-xs tabular-nums">
+                <span className="whitespace-nowrap font-mono text-xs tabular-nums">
                     {formatCostByMode(row.original.quota, row.original.totalTokens, currencyMode)}
                 </span>
             ),
