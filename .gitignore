@@ -26,3 +26,11 @@ node_modules/
 
 # Local app data
 server/data/
+
+# Design mockups / HTML prototypes (not shipped)
+design-mockups/
+
+# Local agent / test session artifacts
+terminals/
+.Codex/
+.claude/worktrees/

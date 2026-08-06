@@ -4,26 +4,34 @@
 
 @layer base {
   :root {
+    /* Aura / Apple light — confirmed design mockup */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --foreground: 240 6% 10%; /* #1d1d1f */
+    --card: 240 5% 96%; /* #f5f5f7 */
+    --card-foreground: 240 6% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 189 85% 37%;
+    --popover-foreground: 240 6% 10%;
+    --primary: 0 0% 7%; /* near-black primary actions */
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 189 85% 37%;
-    --radius: 0.5rem;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%; /* #86868b */
+    --accent: 240 5% 94%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 4 90% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 240 6% 20%;
+    --radius: 1rem;
+
+    --panel: 240 5% 96%;
+    --chart-1: 243 75% 63%; /* #5e5ce6 */
+    --chart-2: 280 68% 60%; /* #af52de */
+    --chart-3: 189 72% 48%; /* #30b0c7 */
+    --chart-4: 340 100% 71%; /* #ff6b9d */
+    --chart-5: 142 71% 45%; /* #34c759 */
   }
 
   .dark {
@@ -33,8 +41,8 @@
     --card-foreground: 210 40% 98%;
     --popover: 222.2 47% 8.5%;
     --popover-foreground: 210 40% 98%;
-    --primary: 189 90% 43%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217.2 32.6% 17.5%;
@@ -45,7 +53,8 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 20%;
     --input: 217.2 32.6% 22%;
-    --ring: 189 90% 43%;
+    --ring: 212 100% 48%;
+    --panel: 222.2 47% 8.5%;
   }
 }
 
@@ -53,15 +62,134 @@
   * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: 'rlig' 1, 'calt' 1;
+  html {
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+  h1, h2, .font-display {
+    font-family: theme('fontFamily.display');
   }
 }
+
+/* Ambient mesh + floating blobs (design mockup) */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background: #ffffff;
+}
+.dark .ambient {
+  background: hsl(var(--background));
+}
+.ambient .blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+  will-change: transform;
+  animation: blob-drift 22s ease-in-out infinite;
+}
+.ambient .blob.b1 {
+  width: 520px;
+  height: 520px;
+  top: -12%;
+  right: -5%;
+  background: radial-gradient(circle, rgba(255, 182, 193, 0.7) 0%, rgba(255, 182, 193, 0) 70%);
+  animation-duration: 26s;
+}
+.ambient .blob.b2 {
+  width: 420px;
+  height: 420px;
+  bottom: 5%;
+  right: 20%;
+  background: radial-gradient(circle, rgba(123, 44, 191, 0.28) 0%, transparent 70%);
+  animation-duration: 30s;
+  animation-delay: -8s;
+}
+.ambient .blob.b3 {
+  width: 380px;
+  height: 380px;
+  bottom: -8%;
+  left: 8%;
+  background: radial-gradient(circle, rgba(42, 157, 143, 0.28) 0%, transparent 70%);
+  animation-duration: 24s;
+  animation-delay: -4s;
+}
+.ambient .blob.b4 {
+  width: 300px;
+  height: 300px;
+  top: 35%;
+  left: 40%;
+  background: radial-gradient(circle, rgba(90, 200, 250, 0.22) 0%, transparent 70%);
+  animation-duration: 28s;
+  animation-delay: -12s;
+}
+.ambient .noise {
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.dark .ambient .blob {
+  opacity: 0.2;
+}
+
+@keyframes blob-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(40px, -30px) scale(1.08); }
+  50% { transform: translate(-25px, 35px) scale(0.94); }
+  75% { transform: translate(30px, 20px) scale(1.04); }
+}
+
+/* Glass sidebar surface */
+.glass-sidebar {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  border-right: 1px solid rgba(0, 0, 0, 0.045);
+}
+.dark .glass-sidebar {
+  background: rgba(15, 23, 42, 0.72);
+  border-right-color: hsl(var(--border));
+}
+
+/* KPI soft color orbs */
+.kpi-orb {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  filter: blur(14px);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: blob-drift 14s ease-in-out infinite;
+}
+.kpi-orb-blue { background: radial-gradient(circle, #5ac8fa, transparent); }
+.kpi-orb-indigo { background: radial-gradient(circle, #5e5ce6, transparent); }
+.kpi-orb-purple { background: radial-gradient(circle, #af52de, transparent); }
+.kpi-orb-teal { background: radial-gradient(circle, #30b0c7, transparent); }
+.kpi-orb-orange { background: radial-gradient(circle, #ff9f0a, transparent); }
+.kpi-orb-pink { background: radial-gradient(circle, #ff6b9d, transparent); }
+.kpi-orb-green { background: radial-gradient(circle, #34c759, transparent); }
+.kpi-orb-red { background: radial-gradient(circle, #e63946, transparent); }
 
 /* Hide focus outlines on chart canvases (echarts) */
 .echarts-for-react canvas:focus,
 .echarts-for-react canvas:focus-visible {
   outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient .blob,
+  .kpi-orb {
+    animation: none;
+  }
 }

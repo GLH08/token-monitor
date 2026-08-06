@@ -75,7 +75,7 @@ function DataTable<TData>({
             {toolbar ? <div className="flex flex-wrap items-center gap-2">{toolbar}</div> : null}
 
             {/* Desktop table */}
-            <div className="hidden overflow-hidden rounded-xl border md:block">
+            <div className="hidden md:block">
                 <Table>
                     <TableHeader>
                         {table.getHeaderGroups().map((headerGroup) => (

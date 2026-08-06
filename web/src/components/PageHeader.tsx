@@ -5,23 +5,26 @@ import { cn } from '../lib/cn';
 interface PageHeaderProps {
     title: string;
     description?: string;
+    /** Kept for API compat; not rendered (title is typography-led). */
     icon?: LucideIcon;
     actions?: ReactNode;
     className?: string;
 }
 
-const PageHeader = ({ title, description, icon: Icon, actions, className }: PageHeaderProps) => (
-    <div className={cn('flex flex-col gap-4 md:flex-row md:items-center md:justify-between', className)}>
-        <div className="flex items-center gap-3">
-            {Icon ? (
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-sm">
-                    <Icon className="h-5 w-5" />
-                </div>
+const PageHeader = ({ title, description, actions, className }: PageHeaderProps) => (
+    <div
+        className={cn(
+            'flex flex-col gap-3 md:flex-row md:items-end md:justify-between',
+            className,
+        )}
+    >
+        <div className="min-w-0">
+            <h1 className="font-display text-[30px] font-normal leading-tight tracking-tight text-foreground md:text-[32px]">
+                {title}
+            </h1>
+            {description ? (
+                <p className="mt-1 text-[13.5px] text-muted-foreground">{description}</p>
             ) : null}
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-                {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-            </div>
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

@@ -3,7 +3,7 @@ import { useUIStore } from '../stores/ui';
 
 /**
  * Applies the `dark` class on <html> to match the persisted theme.
- * Dark-first: the store defaults to 'dark' and index.html ships class="dark".
+ * Light-first: store defaults to 'light' (Aura design system).
  */
 const ThemeProvider = ({ children }: { children: ReactNode }) => {
     const theme = useUIStore((state) => state.theme);

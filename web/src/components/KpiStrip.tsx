@@ -6,19 +6,16 @@ interface KpiStripProps {
     className?: string;
 }
 
-/** Responsive divided grid of StatCards. */
+/** Responsive grid of Aura KPI cards with rotating soft orbs. */
 const KpiStrip = ({ items, className }: KpiStripProps) => (
     <div
         className={cn(
-            'grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4',
+            'grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-7',
             className,
         )}
     >
         {items.map((item, index) => (
-            <StatCard
-                key={item.label + String(index)}
-                {...item}
-            />
+            <StatCard key={item.label + String(index)} orbIndex={index} {...item} />
         ))}
     </div>
 );

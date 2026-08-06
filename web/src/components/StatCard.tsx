@@ -1,17 +1,29 @@
 import { type LucideIcon } from 'lucide-react';
-import { Card } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 import { cn } from '../lib/cn';
+
+const ORB_CYCLE = [
+    'kpi-orb-blue',
+    'kpi-orb-indigo',
+    'kpi-orb-purple',
+    'kpi-orb-teal',
+    'kpi-orb-orange',
+    'kpi-orb-pink',
+    'kpi-orb-green',
+] as const;
 
 export interface StatCardProps {
     label: string;
     value: string | number;
+    /** Kept for API compat; not rendered (Aura KPI has no icon). */
     icon?: LucideIcon;
     hint?: string;
     loading?: boolean;
     /** Optional sparkline series (numbers). */
     sparkline?: number[];
     className?: string;
+    /** Soft blob color class suffix index (0–6). */
+    orbIndex?: number;
 }
 
 /** Renders a tiny inline SVG sparkline from a numeric series. */
@@ -50,40 +62,53 @@ const Sparkline = ({ data, className }: { data: number[]; className?: string }) 
     );
 };
 
+/**
+ * Aura KPI card: fixed vertical rhythm (label / value / meta), soft color orb, no icon.
+ */
 const StatCard = ({
     label,
     value,
-    icon: Icon,
     hint,
     loading = false,
     sparkline,
     className,
-}: StatCardProps) => (
-    <Card className={cn('p-5', className)}>
-        <div className="flex items-center gap-3">
-            {Icon ? (
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
-                    <Icon className="h-6 w-6 text-muted-foreground" />
-                </div>
-            ) : null}
-            <div className="min-w-0 flex-1">
-                {loading ? (
-                    <Skeleton className="mb-2 h-7 w-24" />
-                ) : (
-                    <div className="font-mono text-2xl font-bold tabular-nums tracking-tight">
-                        {value}
-                    </div>
-                )}
-                <div className="text-sm text-muted-foreground">{label}</div>
-                {hint ? <div className="mt-0.5 text-xs text-muted-foreground/70">{hint}</div> : null}
+    orbIndex = 0,
+}: StatCardProps) => {
+    const orbClass = ORB_CYCLE[Math.abs(orbIndex) % ORB_CYCLE.length];
+
+    return (
+        <div
+            className={cn(
+                'relative flex h-[118px] flex-col overflow-hidden rounded-[20px] bg-card px-[18px] pb-3.5 pt-4',
+                className,
+            )}
+        >
+            <span className={cn('kpi-orb', orbClass)} aria-hidden="true" />
+
+            <div className="relative z-[1] h-4 truncate text-xs font-medium leading-4 text-muted-foreground">
+                {label}
             </div>
-            {sparkline && sparkline.length >= 2 ? (
-                <div className="text-primary">
-                    <Sparkline data={sparkline} />
+
+            {loading ? (
+                <Skeleton className="relative z-[1] mt-2.5 h-[34px] w-24" />
+            ) : (
+                <div className="relative z-[1] mt-2.5 h-[34px] truncate font-display text-[26px] font-normal leading-[34px] tracking-tight tabular-nums">
+                    {value}
                 </div>
-            ) : null}
+            )}
+
+            <div className="relative z-[1] mt-auto flex h-4 items-center justify-between gap-2">
+                <div className="truncate text-xs font-medium leading-4 text-muted-foreground/80">
+                    {hint || '\u00a0'}
+                </div>
+                {sparkline && sparkline.length >= 2 ? (
+                    <div className="shrink-0 text-primary-500">
+                        <Sparkline data={sparkline} />
+                    </div>
+                ) : null}
+            </div>
         </div>
-    </Card>
-);
+    );
+};
 
 export default StatCard;

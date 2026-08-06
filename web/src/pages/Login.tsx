@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { Activity, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { login } from '../api/client';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 
@@ -34,30 +33,32 @@ const Login = ({ onLogin }: LoginProps) => {
     };
 
     return (
-        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                <div className="absolute -left-[10%] -top-[20%] h-[50%] w-[50%] rounded-full bg-primary/10 blur-3xl" />
-                <div className="absolute -right-[10%] top-[40%] h-[40%] w-[40%] rounded-full bg-blue-500/10 blur-3xl" />
+        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-6">
+            <div className="ambient" aria-hidden="true">
+                <div className="blob b1" />
+                <div className="blob b2" />
+                <div className="blob b3" />
+                <div className="blob b4" />
+                <div className="noise" />
             </div>
 
-            <Card className="relative z-10 w-full max-w-md p-10">
-                <div className="mb-10 flex flex-col items-center">
-                    <div className="mb-6 flex h-16 w-16 rotate-3 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30">
-                        <Activity className="h-8 w-8" strokeWidth={2.5} />
-                    </div>
-                    <h1 className="text-3xl font-bold tracking-tight">Token Monitor</h1>
-                    <p className="mt-2 font-medium text-muted-foreground">请输入访问密码以继续</p>
+            <div className="relative z-10 w-full max-w-[400px] rounded-[28px] border border-black/5 bg-white/82 p-9 shadow-md backdrop-blur-xl dark:bg-card/90">
+                <div className="mb-8 text-center">
+                    <h1 className="font-display text-[34px] font-normal tracking-tight">Token Monitor</h1>
+                    <p className="mt-2 text-[14.5px] text-muted-foreground">输入访问密码以继续</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-4 text-left">
                     <div className="space-y-2">
-                        <Label htmlFor="password">访问密码</Label>
+                        <Label htmlFor="password" className="text-xs font-semibold text-muted-foreground">
+                            访问密码
+                        </Label>
                         <Input
                             id="password"
                             type="password"
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
-                            placeholder="输入您的密码"
+                            placeholder="••••••••"
                             autoFocus
                         />
                     </div>
@@ -69,16 +70,16 @@ const Login = ({ onLogin }: LoginProps) => {
                         </div>
                     ) : null}
 
-                    <Button type="submit" disabled={submitting} className="w-full text-lg" size="lg">
+                    <Button type="submit" disabled={submitting} className="mt-1 w-full" size="lg">
                         {submitting ? '登录中...' : '进入系统'}
                         <ArrowRight className="h-5 w-5" />
                     </Button>
                 </form>
 
-                <p className="mt-8 text-center text-xs text-muted-foreground">
-                    © {new Date().getFullYear()} Token Monitor
+                <p className="mt-8 text-center text-[11px] uppercase tracking-wider text-muted-foreground/70">
+                    Access · Secured
                 </p>
-            </Card>
+            </div>
         </div>
     );
 };

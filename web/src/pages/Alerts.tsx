@@ -84,9 +84,9 @@ const PERIOD_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 const ACTION_TAKEN_META: Record<string, { label: string; className: string }> = {
-    notify: { label: '通知', className: 'bg-sky-500/15 text-sky-400' },
-    disable_channel: { label: '熔断禁用', className: 'bg-red-500/15 text-red-400' },
-    disable_failed: { label: '熔断失败', className: 'bg-amber-500/15 text-amber-400' },
+    notify: { label: '通知', className: 'bg-sky-500/15 text-sky-700 dark:text-sky-400' },
+    disable_channel: { label: '熔断禁用', className: 'bg-red-500/15 text-red-600 dark:text-red-400' },
+    disable_failed: { label: '熔断失败', className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400' },
 };
 
 const HISTORY_WINDOW_OPTIONS: { value: 'all' | '1h' | '24h' | '7d' | '30d'; label: string }[] = [

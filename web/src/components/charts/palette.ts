@@ -1,17 +1,17 @@
 import { useUIStore } from '../../stores/ui';
 
-/** Stable brand-aware palette (cyan-led, ported from the legacy app idea). */
+/** Aura multi-color chart palette (indigo / purple / teal / pink / green). */
 export const CHART_COLORS = [
-    '#06b6d4',
-    '#3b82f6',
-    '#8b5cf6',
-    '#ec4899',
-    '#f59e0b',
-    '#10b981',
-    '#ef4444',
-    '#14b8a6',
+    '#5e5ce6',
+    '#af52de',
+    '#30b0c7',
+    '#ff6b9d',
+    '#34c759',
+    '#ff9f0a',
+    '#0071e3',
+    '#ff2d55',
     '#6366f1',
-    '#f97316',
+    '#14b8a6',
 ];
 
 /** Returns N colors, cycling through the palette. */
@@ -29,10 +29,10 @@ export function useChartTheme() {
     const isDark = theme === 'dark';
     return {
         isDark,
-        textColor: isDark ? '#cbd5e1' : '#475569',
-        axisLineColor: isDark ? '#334155' : '#e2e8f0',
-        splitLineColor: isDark ? '#1e293b' : '#f1f5f9',
+        textColor: isDark ? '#cbd5e1' : '#86868b',
+        axisLineColor: isDark ? '#334155' : 'rgba(0,0,0,0.06)',
+        splitLineColor: isDark ? '#1e293b' : 'rgba(0,0,0,0.045)',
         tooltipBg: isDark ? '#0f172a' : '#ffffff',
-        tooltipBorder: isDark ? '#1e293b' : '#e2e8f0',
+        tooltipBorder: isDark ? '#1e293b' : 'rgba(0,0,0,0.06)',
     };
 }

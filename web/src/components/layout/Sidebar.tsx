@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import {
-    Activity,
     BarChart3,
     Bell,
     Cpu,
@@ -19,7 +18,7 @@ export interface NavItem {
     icon: LucideIcon;
 }
 
-/** The 7 C3 pages in IA order (parent design §5). Login is handled by the auth gate. */
+/** The 7 C3 pages in IA order. Login is handled by the auth gate. */
 export const NAV_ITEMS: NavItem[] = [
     { path: '/', label: '概览', icon: LayoutDashboard },
     { path: '/usage', label: '用量分析', icon: BarChart3 },
@@ -37,15 +36,21 @@ interface SidebarProps {
 }
 
 const Sidebar = ({ onNavigate, onLogout, showLogout = false }: SidebarProps) => (
-    <div className="flex h-full flex-col">
-        <div className="flex items-center gap-3 p-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-md shadow-primary-500/30">
-                <Activity className="h-5 w-5" />
+    <div className="flex h-full flex-col px-4 pb-5 pt-7">
+        <div className="px-3 pb-6">
+            <div className="font-display text-[26px] leading-tight tracking-tight text-foreground">
+                Token
             </div>
-            <h1 className="text-base font-bold tracking-tight">TokenMonitor</h1>
+            <div className="mt-1 text-[11px] font-medium tracking-wide text-muted-foreground">
+                Monitor · Light
+            </div>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-auto px-3 pb-3">
+        <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+            导航
+        </div>
+
+        <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
             {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -56,29 +61,29 @@ const Sidebar = ({ onNavigate, onLogout, showLogout = false }: SidebarProps) => 
                         onClick={onNavigate}
                         className={({ isActive }) =>
                             cn(
-                                'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                                'flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13.5px] font-medium transition-colors',
                                 isActive
-                                    ? 'bg-primary/10 text-primary'
-                                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                                    ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.03)] [&_svg]:text-primary-500'
+                                    : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground [&_svg]:opacity-80',
                             )
                         }
                     >
-                        <Icon className="h-[18px] w-[18px]" />
-                        {item.label}
+                        <Icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="truncate">{item.label}</span>
                     </NavLink>
                 );
             })}
         </nav>
 
         {showLogout && onLogout ? (
-            <div className="border-t p-3">
+            <div className="mt-3 border-t border-border/60 px-1 pt-3">
                 <button
                     type="button"
                     onClick={onLogout}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+                    className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13.5px] font-medium text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
                 >
-                    <LogOut className="h-5 w-5" />
-                    退出登录
+                    <LogOut className="h-[18px] w-[18px] shrink-0" />
+                    <span>退出登录</span>
                 </button>
             </div>
         ) : null}

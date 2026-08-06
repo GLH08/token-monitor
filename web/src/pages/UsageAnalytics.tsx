@@ -234,34 +234,40 @@ const UsageAnalytics = () => {
         <div className="space-y-6">
             <PageHeader title="用量分析" description="按分组 / 渠道 / 模型 / Token / 用户多维拆解" icon={BarChart3} />
 
-            <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">维度</span>
-                    <Select value={dimension} onValueChange={(v) => updateParam('dimension', v)}>
-                        <SelectTrigger className="h-9 w-32">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {DIMENSION_OPTIONS.map((o) => (
-                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">指标</span>
-                    <Select value={metric} onValueChange={(v) => updateParam('metric', v)}>
-                        <SelectTrigger className="h-9 w-40">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {METRIC_OPTIONS.map((o) => (
-                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            </div>
+            <Card>
+                <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+                    <div className="space-y-2">
+                        <span className="text-xs font-semibold text-muted-foreground">维度</span>
+                        <Select value={dimension} onValueChange={(v) => updateParam('dimension', v)}>
+                            <SelectTrigger className="h-11 w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl">
+                                {DIMENSION_OPTIONS.map((o) => (
+                                    <SelectItem key={o.value} value={o.value} className="rounded-xl">
+                                        {o.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <span className="text-xs font-semibold text-muted-foreground">指标</span>
+                        <Select value={metric} onValueChange={(v) => updateParam('metric', v)}>
+                            <SelectTrigger className="h-11 w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl">
+                                {METRIC_OPTIONS.map((o) => (
+                                    <SelectItem key={o.value} value={o.value} className="rounded-xl">
+                                        {o.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardContent>
+            </Card>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <Card className="lg:col-span-2">

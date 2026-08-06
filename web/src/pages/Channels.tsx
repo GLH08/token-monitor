@@ -26,15 +26,15 @@ import type { ColumnDef } from '@tanstack/react-table';
 import type { ChannelOverviewRow, ChannelKeyDetail } from '../api/types';
 
 const STATUS_META: Record<number, { label: string; className: string }> = {
-    1: { label: '启用', className: 'border-transparent bg-emerald-500/15 text-emerald-400' },
-    2: { label: '已禁用', className: 'border-transparent bg-amber-500/15 text-amber-400' },
-    3: { label: '自动禁用', className: 'border-transparent bg-red-500/15 text-red-400' },
+    1: { label: '启用', className: 'border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' },
+    2: { label: '已禁用', className: 'border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400' },
+    3: { label: '自动禁用', className: 'border-transparent bg-red-500/15 text-red-600 dark:text-red-400' },
 };
 
 function errorRateClass(errorRate: number): string {
-    if (errorRate > 0.05) return 'bg-red-500/15 text-red-400';
-    if (errorRate > 0.01) return 'bg-amber-500/15 text-amber-400';
-    return 'bg-emerald-500/15 text-emerald-400';
+    if (errorRate > 0.05) return 'bg-red-500/15 text-red-600 dark:text-red-400';
+    if (errorRate > 0.01) return 'bg-amber-500/15 text-amber-700 dark:text-amber-400';
+    return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400';
 }
 
 function KeyStatusBadge({ status }: { status: number }) {

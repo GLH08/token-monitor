@@ -1,7 +1,7 @@
 /**
  * Global UI state (Zustand): time-range preset, currency/token mode,
  * sensitive-data mask, and theme. Persisted to localStorage so user choices
- * survive reloads. Dark-first (default theme = 'dark').
+ * survive reloads. Light-first (Aura design system default).
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -39,7 +39,7 @@ export const useUIStore = create<UIState>()(
             toggleMasked: () => set((state) => ({ masked: !state.masked })),
             setMasked: (value) => set({ masked: value }),
 
-            theme: 'dark',
+            theme: 'light',
             setTheme: (theme) => set({ theme }),
             toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
         }),

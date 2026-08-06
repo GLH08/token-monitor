@@ -64,8 +64,8 @@ function secondsColor(sec: number): string {
 }
 
 const BILLING_SOURCE_META: Record<string, { label: string; className: string }> = {
-    wallet: { label: '钱包', className: 'bg-violet-500/15 text-violet-400' },
-    subscription: { label: '订阅', className: 'bg-sky-500/15 text-sky-400' },
+    wallet: { label: '钱包', className: 'bg-violet-500/15 text-violet-700 dark:text-violet-400' },
+    subscription: { label: '订阅', className: 'bg-sky-500/15 text-sky-700 dark:text-sky-400' },
 };
 
 interface FilterDraft {
@@ -83,16 +83,16 @@ const EMPTY_DRAFT: FilterDraft = {
 // ==================== Log details dialog ====================
 
 const DetailField = ({ label, value }: { label: string; value: ReactNode }) => (
-    <div className="space-y-0.5">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-sm font-medium break-all">{value}</div>
+    <div className="flex min-h-12 flex-col justify-center gap-1">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <div className="break-all text-[13.5px] font-medium leading-snug">{value}</div>
     </div>
 );
 
 const BreakdownRow = ({ label, value, accent }: { label: string; value: string; accent?: string }) => (
-    <div className="flex items-center justify-between py-1.5 border-b border-border/40 last:border-0">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <span className={cn('font-mono text-sm tabular-nums', accent)}>{value}</span>
+    <div className="flex min-h-9 items-center justify-between gap-3 border-b border-black/[0.05] py-1.5 last:border-0 dark:border-border/40">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className={cn('font-mono text-[13px] font-medium tabular-nums', accent)}>{value}</span>
     </div>
 );
 
@@ -112,13 +112,13 @@ const LogDetailsDialog = ({
 }) => (
     <Dialog open={!!log} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-            <DialogHeader>
+            <DialogHeader className="-mx-1 border-b border-border/50 pb-4">
                 <DialogTitle>日志详情</DialogTitle>
                 <DialogDescription>日志 ID: {log?.id ?? '--'}</DialogDescription>
             </DialogHeader>
             {log ? (
-                <div className="space-y-5">
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <div className="space-y-4 pt-1">
+                    <div className="grid grid-cols-2 gap-x-5 gap-y-3.5 sm:grid-cols-3">
                         <DetailField label="时间" value={formatEpochSeconds(Number(log.createdAt))} />
                         <DetailField
                             label="耗时"
@@ -166,44 +166,44 @@ const LogDetailsDialog = ({
                         />
                     </div>
 
-                    <div className="rounded-lg border p-4">
-                        <div className="mb-2 text-sm font-semibold">Token 消耗</div>
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-0 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-black/5 bg-white p-4 dark:border-border dark:bg-card">
+                        <div className="mb-2 text-[13.5px] font-semibold">Token 消耗</div>
+                        <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2 md:grid-cols-3">
                             <BreakdownRow label="输入 (Prompt)" value={formatNumber(log.promptTokens, 0)} />
                             <BreakdownRow label="输出 (Completion)" value={formatNumber(log.completionTokens, 0)} />
                             <BreakdownRow
                                 label="缓存读取"
                                 value={formatNumber(log.cache_read_tokens, 0)}
-                                accent="text-amber-400"
+                                accent="text-amber-600"
                             />
                             <BreakdownRow
                                 label="缓存写入"
                                 value={formatNumber(log.cache_write_tokens, 0)}
-                                accent="text-sky-400"
+                                accent="text-sky-600"
                             />
                             <BreakdownRow
                                 label="总输入（含缓存）"
                                 value={formatNumber(log.total_input_tokens, 0)}
-                                accent="text-violet-400"
+                                accent="text-violet-600"
                             />
                             <BreakdownRow
                                 label="吞吐总量（输入+输出）"
                                 value={formatNumber(log.throughput_total, 0)}
-                                accent="text-primary"
+                                accent="text-primary-500"
                             />
                             <BreakdownRow label="图像" value={formatNumber(log.image_tokens, 0)} />
                             <BreakdownRow label="音频" value={formatNumber(log.audio_tokens, 0)} />
                             <BreakdownRow
                                 label="基础合计（输入+输出）"
                                 value={formatNumber(log.totalTokens, 0)}
-                                accent="text-primary"
+                                accent="text-primary-500"
                             />
                         </div>
                     </div>
 
-                    <div className="rounded-lg border p-4">
-                        <div className="mb-2 text-sm font-semibold">计费明细</div>
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-0">
+                    <div className="rounded-2xl border border-black/5 bg-white p-4 dark:border-border dark:bg-card">
+                        <div className="mb-2 text-[13.5px] font-semibold">计费明细</div>
+                        <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">
                             <BreakdownRow label="模型倍率" value={formatRatio(log.ratios.model)} />
                             <BreakdownRow label="补全倍率" value={formatRatio(log.ratios.completion)} />
                             <BreakdownRow label="分组倍率" value={formatRatio(log.ratios.group)} />
@@ -213,7 +213,7 @@ const LogDetailsDialog = ({
                             <BreakdownRow
                                 label="费用 (USD)"
                                 value={formatUsd(log.cost_usd)}
-                                accent="text-emerald-400"
+                                accent="text-emerald-600"
                             />
                             <BreakdownRow
                                 label="计费来源"
