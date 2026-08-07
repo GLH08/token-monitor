@@ -417,7 +417,7 @@ export interface LatencyAnalysisResponse {
         modelName: string;
         channelId: number;
         createdAt: string;
-    }>; 
+    }>;
     percentiles: {
         latency_ms: { count: number; p50: number; p95: number; p99: number };
         ttft_ms: { count: number; p50: number; p95: number; p99: number };
