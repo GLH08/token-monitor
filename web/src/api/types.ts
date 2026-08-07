@@ -321,6 +321,15 @@ export interface ChannelOverviewRow {
     auto_ban: number | null;
     used_quota: number;
     cost_usd: number;
+    tokens: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    total_input_tokens: number;
+    net_input_tokens: number;
+    throughput_total: number;
+    throughput_tokens: number;
     requests: number;
     errors: number;
     /** 0..1 error fraction over the selected window. */

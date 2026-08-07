@@ -12,6 +12,7 @@ const { prisma } = require('../syncer');
 const { mapExtendedMetrics } = require('../tokenMetrics');
 const { getUsageBreakdownByUser, mapTotals } = require('../routes/usage');
 const { aggregateTokenUsage } = require('../routes/tokens');
+const { mapChannelUsage } = require('../routes/channels');
 const { parseUsageFilters } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
@@ -133,6 +134,29 @@ test('aggregateTokenUsage returns canonical token fields from logs', () => {
         image_tokens: 0,
         audio_tokens: 0
     }]);
+});
+
+test('mapChannelUsage exposes token-first channel totals', () => {
+    assert.deepEqual(mapChannelUsage({
+        prompt_tokens: 80,
+        completion_tokens: 20,
+        cache_hit_tokens: 30,
+        cache_creation_tokens: 10,
+        total_input_tokens: 100,
+        tokens: 100,
+        requests: 1
+    }), {
+        tokens: 100,
+        prompt_tokens: 80,
+        completion_tokens: 20,
+        cache_read_tokens: 30,
+        cache_creation_tokens: 10,
+        total_input_tokens: 100,
+        net_input_tokens: 60,
+        throughput_total: 120,
+        throughput_tokens: 120,
+        requests: 1
+    });
 });
 
 // --- per-user breakdown: token_id -> user regroup (no usage_stats schema change) ---

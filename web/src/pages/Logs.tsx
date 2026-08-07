@@ -515,13 +515,13 @@ const Logs = () => {
 
     const kpiItems: StatCardProps[] = [
         { label: '筛选结果', value: formatNumber(total, 0), icon: FileText, loading: isLoading },
-        { label: '总 Token', value: formatTokens(safeStats.total_tokens), icon: Search, loading: isLoading },
-        { label: '输入', value: formatTokens(safeStats.total_prompt_tokens), icon: ArrowDown, loading: isLoading },
+        { label: '吞吐 Token', value: formatTokens(safeStats.throughput_total), icon: Search, loading: isLoading },
+        { label: '输入', value: formatTokens(safeStats.total_input_tokens), icon: ArrowDown, loading: isLoading },
         { label: '输出', value: formatTokens(safeStats.total_completion_tokens), icon: ArrowUp, loading: isLoading },
         { label: '缓存读取', value: formatTokens(safeStats.total_cache_read_tokens), icon: Database, loading: isLoading },
         { label: '缓存写入', value: formatTokens(safeStats.total_cache_write_tokens), icon: Database, loading: isLoading },
         {
-            label: currencyMode === 'token' ? '总费用 (USD)' : '总费用',
+            label: '估算费用',
             value: formatStatsCost(),
             icon: AlertCircle,
             loading: isLoading,

@@ -7,6 +7,29 @@ const { parseChannelInfo } = require('../channelInfo');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
+function mapChannelUsage(row = {}) {
+    const promptTokens = Number(row.prompt_tokens) || 0;
+    const completionTokens = Number(row.completion_tokens) || 0;
+    const cacheReadTokens = Number(row.cache_read_tokens ?? row.cache_hit_tokens) || 0;
+    const cacheCreationTokens = Number(row.cache_creation_tokens) || 0;
+    const totalInputTokens = Number(row.total_input_tokens) > 0
+        ? Number(row.total_input_tokens)
+        : promptTokens;
+    const throughputTotal = totalInputTokens + completionTokens;
+    return {
+        tokens: Number(row.tokens) || promptTokens + completionTokens,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        cache_read_tokens: cacheReadTokens,
+        cache_creation_tokens: cacheCreationTokens,
+        total_input_tokens: totalInputTokens,
+        net_input_tokens: Math.max(0, totalInputTokens - cacheReadTokens - cacheCreationTokens),
+        throughput_total: throughputTotal,
+        throughput_tokens: throughputTotal,
+        requests: Number(row.requests) || 0
+    };
+}
+
 // Mask an API key for display: show first 4 and last 4 chars.
 function maskKey(key) {
     if (!key || typeof key !== 'string') return '****';
@@ -38,7 +61,12 @@ router.get('/overview', async (req, res) => {
 
         const statsRows = await db.allAsync(
             `SELECT channel_id, SUM(request_count) as requests, SUM(error_count) as errors,
-                    SUM(use_time_sum_sec) as use_time_sum_sec
+                    SUM(use_time_sum_sec) as use_time_sum_sec,
+                    SUM(tokens) as tokens, SUM(prompt_tokens) as prompt_tokens,
+                    SUM(completion_tokens) as completion_tokens,
+                    SUM(cache_hit_tokens) as cache_read_tokens,
+                    SUM(cache_creation_tokens) as cache_creation_tokens,
+                    SUM(total_input_tokens) as total_input_tokens
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY channel_id`,
             [timeRange.startTs, timeRange.endTs]
@@ -49,6 +77,7 @@ router.get('/overview', async (req, res) => {
             const s = statsMap[ch.id] || {};
             const requests = s.requests || 0;
             const errors = s.errors || 0;
+            const tokenUsage = mapChannelUsage(s);
             const usedQuota = Number(ch.usedQuota) || 0;
             const info = parseChannelInfo(ch.channelInfo);
             return {
@@ -60,6 +89,7 @@ router.get('/overview', async (req, res) => {
                 auto_ban: ch.autoBan,
                 used_quota: usedQuota,
                 cost_usd: usedQuota / QUOTA_PER_UNIT,
+                ...tokenUsage,
                 requests,
                 errors,
                 error_rate: requests > 0 ? Number((errors / requests).toFixed(4)) : 0,
@@ -203,3 +233,4 @@ router.get('/', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.mapChannelUsage = mapChannelUsage;

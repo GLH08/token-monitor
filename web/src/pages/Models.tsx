@@ -8,15 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { useModelsAnalysis } from '../api/hooks';
 import { useUIStore } from '../stores/ui';
 import { presetToRange } from '../lib/time';
-import { CNY_USD_RATE, formatCostByMode } from '../lib/currency';
+import { formatCostByMode } from '../lib/currency';
 import {
-    formatCny,
     formatLatency,
     formatNumber,
     formatPercent,
     formatTokens,
     formatTPS,
-    formatUsd,
 } from '../lib/format';
 import type { StatCardProps } from '../components/StatCard';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -41,10 +39,12 @@ const Models = () => {
             },
             {
                 accessorKey: 'cost_usd',
-                header: '费用',
+                header: '估算费用',
                 cell: ({ row }) => formatCostByMode(row.original.quota, row.original.tokens, currencyMode),
             },
-            { accessorKey: 'tokens', header: 'Tokens', cell: ({ row }) => formatTokens(row.original.tokens) },
+            { accessorKey: 'throughput_total', header: '吞吐 Token', cell: ({ row }) => formatTokens(row.original.throughput_total) },
+            { accessorKey: 'total_input_tokens', header: '输入 Token', cell: ({ row }) => formatTokens(row.original.total_input_tokens) },
+            { accessorKey: 'completion_tokens', header: '输出 Token', cell: ({ row }) => formatTokens(row.original.completion_tokens) },
             {
                 accessorKey: 'requests',
                 header: '请求数',
@@ -107,13 +107,14 @@ const Models = () => {
             loading: isLoading,
         },
         {
-            label: currencyMode === 'token' ? 'Tokens 用量' : '总费用',
-            value: summary
-                ? currencyMode === 'token'
-                    ? formatTokens(summary.totalTokens)
-                    : currencyMode === 'cny'
-                      ? formatCny(summary.total_cost_usd * CNY_USD_RATE)
-                      : formatUsd(summary.total_cost_usd)
+            label: '吞吐 Token',
+            value: summary ? formatTokens(summary.throughputTotal) : '--',
+            loading: isLoading,
+        },
+        {
+            label: '输入 Token',
+            value: models.length > 0
+                ? formatTokens(models.reduce((total, model) => total + model.total_input_tokens, 0))
                 : '--',
             loading: isLoading,
         },
@@ -131,7 +132,7 @@ const Models = () => {
 
     return (
         <div className="space-y-6">
-            <PageHeader title="模型分析" description="各模型的用量、成本、缓存命中与延迟" icon={Cpu} />
+            <PageHeader title="模型分析" description="各模型的 Token 用量、缓存命中与延迟" icon={Cpu} />
 
             <KpiStrip items={kpiItems} />
 
@@ -154,7 +155,7 @@ const Models = () => {
                                 <div className="space-y-1">
                                     <div className="font-medium">{m.model_name}</div>
                                     <div className="text-sm text-muted-foreground">
-                                        费用 {formatCostByMode(m.quota, m.tokens, currencyMode)} · Tokens {formatTokens(m.tokens)}
+                                        吞吐 Token {formatTokens(m.throughput_total)} · 输入 {formatTokens(m.total_input_tokens)}
                                     </div>
                                     <div className="text-sm text-muted-foreground">
                                         请求 {formatNumber(m.requests, 0)} · 成功率 {formatPercent(m.success_rate)} · 延迟 {formatLatency(m.avg_latency_ms)}

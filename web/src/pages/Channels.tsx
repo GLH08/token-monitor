@@ -19,7 +19,7 @@ import { useChannelsOverview } from '../api/hooks';
 import { fetchChannelKeys } from '../api/client';
 import { useUIStore } from '../stores/ui';
 import { formatCostByMode, type CurrencyMode } from '../lib/currency';
-import { formatLatency, formatNumber, formatPercent, formatQuota, maskValue } from '../lib/format';
+import { formatLatency, formatNumber, formatPercent, formatQuota, formatTokens, maskValue } from '../lib/format';
 import { cn } from '../lib/cn';
 import type { StatCardProps } from '../components/StatCard';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -151,8 +151,18 @@ const Channels = () => {
         },
         {
             accessorKey: 'used_quota',
-            header: '费用',
+            header: '估算费用',
             cell: ({ row }) => formatChannelCost(row.original.used_quota),
+        },
+        {
+            accessorKey: 'throughput_total',
+            header: '吞吐 Token',
+            cell: ({ row }) => formatTokens(row.original.throughput_total),
+        },
+        {
+            accessorKey: 'total_input_tokens',
+            header: '输入 Token',
+            cell: ({ row }) => formatTokens(row.original.total_input_tokens),
         },
         {
             accessorKey: 'requests',
@@ -182,6 +192,12 @@ const Channels = () => {
 
     const kpiItems: StatCardProps[] = [
         { label: '渠道总数', value: data ? formatNumber(data.total, 0) : '--', icon: Server, loading: isLoading },
+        {
+            label: '吞吐 Token',
+            value: formatTokens(channels.reduce((total, channel) => total + channel.throughput_total, 0)),
+            icon: Server,
+            loading: isLoading,
+        },
         { label: '启用', value: statusCount ? formatNumber(statusCount.enabled, 0) : '--', icon: ShieldCheck, loading: isLoading },
         { label: '已禁用', value: statusCount ? formatNumber(statusCount.disabled, 0) : '--', icon: ShieldAlert, loading: isLoading },
         { label: '自动禁用', value: statusCount ? formatNumber(statusCount.autoDisabled, 0) : '--', icon: ShieldX, loading: isLoading },
@@ -189,7 +205,7 @@ const Channels = () => {
 
     return (
         <div className="space-y-6">
-            <PageHeader title="渠道监控" description="渠道状态、用量、错误率与平均延迟" icon={Server} />
+            <PageHeader title="渠道监控" description="渠道 Token 分布、状态、错误率与延迟" icon={Server} />
             <KpiStrip items={kpiItems} />
             <Card>
                 <CardHeader><CardTitle>渠道列表</CardTitle></CardHeader>
@@ -223,7 +239,7 @@ const Channels = () => {
                                             <Badge className={meta.className}>{meta.label}</Badge>
                                         </div>
                                         <div className="text-sm text-muted-foreground">
-                                            费用 {formatChannelCost(c.used_quota)} · 请求 {formatNumber(c.requests, 0)}
+                                            吞吐 Token {formatTokens(c.throughput_total)} · 请求 {formatNumber(c.requests, 0)}
                                         </div>
                                         <div className="text-sm text-muted-foreground">
                                             错误率 {formatPercent(c.error_rate)} · 延迟 {formatLatency(c.avg_latency_ms)}
@@ -266,11 +282,11 @@ const Channels = () => {
                                 />
                             </div>
                             <div>
-                                <p className="mb-2 text-sm font-medium text-muted-foreground">费用分布</p>
+                                <p className="mb-2 text-sm font-medium text-muted-foreground">Token 分布</p>
                                 <DistributionPie
                                     data={keysData.keys
-                                        .filter(k => k.quota > 0)
-                                        .map(k => ({ name: `密钥#${k.key_index}`, value: Number(k.quota) }))}
+                                        .filter(k => k.tokens > 0)
+                                        .map(k => ({ name: `密钥#${k.key_index}`, value: Number(k.tokens) }))}
                                     height={220}
                                 />
                             </div>
