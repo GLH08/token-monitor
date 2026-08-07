@@ -27,6 +27,7 @@ function percentageChange(current, previous) {
 
 function resolveAlertPeriod(rule = {}, now, defaultHours = 1) {
     let startTime;
+    const isNaturalDay = rule.period === 'today' || rule.period === 'daily';
     if (rule.period === 'custom') {
         startTime = Number(rule.customStartTs) || now - defaultHours * 3600;
     } else if (rule.period === 'today' || rule.period === 'daily') {
@@ -41,7 +42,8 @@ function resolveAlertPeriod(rule = {}, now, defaultHours = 1) {
     const normalizedStart = Math.floor(startTime);
     return {
         startTime: normalizedStart,
-        durationSeconds: Math.max(1, now - normalizedStart)
+        durationSeconds: Math.max(0, now - normalizedStart),
+        isNaturalDay
     };
 }
 
@@ -49,7 +51,12 @@ function resolveAlertStatsWindow(rule, now, defaultHours = 1) {
     const period = resolveAlertPeriod(rule, now, defaultHours);
     const currentHour = Math.floor(now / 3600) * 3600;
     const endTime = currentHour + 3600;
-    const durationHours = Math.max(1, Math.ceil(period.durationSeconds / 3600));
+    const elapsedSeconds = period.durationSeconds;
+    const elapsedHours = Math.max(1, Math.ceil(Math.max(1, elapsedSeconds) / 3600));
+    const includesCurrentBoundary = period.isNaturalDay
+        && elapsedSeconds > 0
+        && elapsedSeconds % 3600 === 0;
+    const durationHours = elapsedHours + (includesCurrentBoundary ? 1 : 0);
     const durationSeconds = durationHours * 3600;
     const currentStart = currentHour - (durationHours - 1) * 3600;
     return { currentStart, endTime, previousStart: currentStart - durationSeconds };

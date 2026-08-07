@@ -256,6 +256,10 @@ test('alert periods support natural-day windows', () => {
         resolveAlertStatsWindow({ period: '1' }, now).endTime,
         (Math.floor(now / 3600) + 1) * 3600
     );
+    assert.equal(
+        resolveAlertStatsWindow({ period: 'today' }, now).currentStart,
+        period.startTime
+    );
 });
 
 // --- per-user breakdown: token_id -> user regroup (no usage_stats schema change) ---
