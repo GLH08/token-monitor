@@ -36,8 +36,8 @@ const DIMENSION_OPTIONS: { value: UsageDimension; label: string }[] = [
 ];
 
 const METRIC_OPTIONS: { value: UsageMetric; label: string }[] = [
-    { value: 'cost', label: '费用' },
-    { value: 'tokens', label: 'Tokens' },
+    { value: 'tokens', label: '吞吐 Tokens' },
+    { value: 'cost', label: '估算费用' },
     { value: 'requests', label: '请求数' },
     { value: 'quota', label: '配额' },
     { value: 'cache_hit_ratio', label: '缓存命中率' },
@@ -56,6 +56,7 @@ interface MetricHolder {
     cost_usd: number;
     quota: number;
     tokens: number;
+    throughput_total: number;
     requests: number;
     cache_hit_ratio: number;
     image_tokens: number;
@@ -70,7 +71,7 @@ function metricValue(row: MetricHolder, metric: UsageMetric): number {
     switch (metric) {
         case 'cost': return row.cost_usd;
         case 'quota': return row.quota;
-        case 'tokens': return row.tokens;
+        case 'tokens': return row.throughput_total;
         case 'requests': return row.requests;
         case 'cache_hit_ratio': return row.cache_hit_ratio;
         case 'image_tokens': return row.image_tokens;
@@ -123,7 +124,7 @@ const UsageAnalytics = () => {
     const metricRaw = searchParams.get('metric');
     const metric: UsageMetric = (metricRaw && VALID_METRICS.has(metricRaw as UsageMetric))
         ? metricRaw as UsageMetric
-        : 'cost';
+        : 'tokens';
 
     const updateParam = (key: string, value: string) => {
         const next = new URLSearchParams(searchParams);
@@ -189,10 +190,12 @@ const UsageAnalytics = () => {
             },
             {
                 accessorKey: 'cost_usd',
-                header: '费用',
+                header: '估算费用',
                 cell: ({ row }) => formatCostByMode(row.original.quota, row.original.tokens, currencyMode),
             },
-            { accessorKey: 'tokens', header: 'Tokens', cell: ({ row }) => formatTokens(row.original.tokens) },
+            { accessorKey: 'throughput_total', header: '吞吐 Token', cell: ({ row }) => formatTokens(row.original.throughput_total) },
+            { accessorKey: 'total_input_tokens', header: '输入 Token', cell: ({ row }) => formatTokens(row.original.total_input_tokens) },
+            { accessorKey: 'completion_tokens', header: '输出 Token', cell: ({ row }) => formatTokens(row.original.completion_tokens) },
             { accessorKey: 'requests', header: '请求数', cell: ({ row }) => formatNumber(row.original.requests, 0) },
             {
                 accessorKey: 'success_rate',
@@ -342,7 +345,7 @@ const UsageAnalytics = () => {
                                 <div className="space-y-1">
                                     <div className="font-medium">{displayLabel(r)}</div>
                                     <div className="text-sm text-muted-foreground">
-                                        费用 {formatCostByMode(r.quota, r.tokens, currencyMode)} · Tokens {formatTokens(r.tokens)}
+                                        估算费用 {formatCostByMode(r.quota, r.tokens, currencyMode)} · 吞吐 Token {formatTokens(r.throughput_total)}
                                     </div>
                                     <div className="text-sm text-muted-foreground">
                                         请求 {formatNumber(r.requests, 0)} · 成功率 {formatPercent(r.success_rate)}

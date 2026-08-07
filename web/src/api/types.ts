@@ -36,6 +36,12 @@ export interface ExtendedMetrics {
     audio_tokens: number;
     /** Total input tokens incl. cache (prompt_tokens + cache for Claude-semantic). */
     total_input_tokens: number;
+    /** Input tokens excluding cache read and cache creation tokens. */
+    net_input_tokens: number;
+    /** Total input tokens plus completion tokens. */
+    throughput_total: number;
+    /** Alias of throughput_total for token-first clients. */
+    throughput_tokens: number;
     /** 0..1, = cache_hit_tokens / total_input_tokens. */
     cache_hit_ratio: number;
     /** 0..1, = 1 - errors/requests (0 when no requests). */
@@ -151,6 +157,13 @@ export interface UsageSummaryResponse extends UsageTotalsWithMetrics {
     active_channels: number;
     active_models: number;
     active_tokens: number;
+    comparison?: UsagePeriodComparison;
+}
+
+export interface UsagePeriodComparison {
+    previous: UsageTotalsWithMetrics;
+    delta: Record<string, number>;
+    delta_percent: Record<string, number | null>;
 }
 
 export interface UsageTimeseriesPoint extends UsageTotalsWithMetrics {

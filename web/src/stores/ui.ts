@@ -32,7 +32,7 @@ export const useUIStore = create<UIState>()(
             timePreset: DEFAULT_TIME_PRESET,
             setTimePreset: (preset) => set({ timePreset: preset }),
 
-            currencyMode: 'usd',
+            currencyMode: 'token',
             setCurrencyMode: (mode) => set({ currencyMode: mode }),
 
             masked: false,

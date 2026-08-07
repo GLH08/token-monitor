@@ -5,7 +5,6 @@ import {
     CheckCircle2,
     Database,
     DollarSign,
-    Gauge,
     Server,
     Cpu,
     Zap,
@@ -24,7 +23,6 @@ import {
     formatCompact,
     formatNumber,
     formatPercent,
-    formatRpm,
     formatTokens,
     formatUsd,
     formatCny,
@@ -77,7 +75,7 @@ const Overview = () => {
     const realtime = useRealtime();
 
     const trendValueOf = useMemo(
-        () => (p: UsageTimeseriesPoint) => (currencyMode === 'token' ? p.tokens : p.cost_usd),
+        () => (p: UsageTimeseriesPoint) => (currencyMode === 'token' ? p.throughput_total : p.cost_usd),
         [currencyMode],
     );
     const trend = useMemo(
@@ -94,21 +92,37 @@ const Overview = () => {
     const toRank = (rows: UsageRow[]): { name: string; value: number }[] =>
         rows.map((r) => ({
             name: r.label || r.key,
-            value: currencyMode === 'token' ? r.tokens : r.cost_usd,
+            value: currencyMode === 'token' ? r.throughput_total : r.cost_usd,
         }));
 
     const s = summary.data;
     const kpiItems: StatCardProps[] = [
         {
-            label: currencyMode === 'token' ? 'Tokens 用量' : '费用',
-            value: s ? formatCostByMode(s.total_quota, s.total_tokens, currencyMode) : '--',
+            label: currencyMode === 'token' ? '吞吐 Token' : '估算费用',
+            value: s
+                ? currencyMode === 'token'
+                    ? formatTokens(s.throughput_total)
+                    : formatCostByMode(s.total_quota, s.total_tokens, currencyMode)
+                : '--',
             icon: DollarSign,
             loading: summary.isLoading,
         },
         {
-            label: 'Tokens',
-            value: s ? formatTokens(s.total_tokens) : '--',
+            label: '输入 Token',
+            value: s ? formatTokens(s.total_input_tokens) : '--',
             icon: Zap,
+            loading: summary.isLoading,
+        },
+        {
+            label: '输出 Token',
+            value: s ? formatTokens(s.total_completion_tokens) : '--',
+            icon: Activity,
+            loading: summary.isLoading,
+        },
+        {
+            label: '缓存读取',
+            value: s ? formatTokens(s.total_cache_hit_tokens) : '--',
+            icon: Database,
             loading: summary.isLoading,
         },
         {
@@ -118,27 +132,13 @@ const Overview = () => {
             loading: summary.isLoading,
         },
         {
-            label: 'RPM',
-            value: s ? formatRpm(s.rpm) : '--',
-            icon: Gauge,
-            hint: '近 60 秒',
-            loading: summary.isLoading,
-        },
-        {
-            label: 'TPM',
-            value: s ? formatCompact(s.tpm) : '--',
-            icon: Zap,
-            hint: '近 60 秒',
-            loading: summary.isLoading,
-        },
-        {
             label: '成功率',
             value: s ? formatPercent(s.success_rate) : '--',
             icon: CheckCircle2,
             loading: summary.isLoading,
         },
         {
-            label: '缓存命中',
+            label: '缓存命中率',
             value: s ? formatPercent(s.cache_hit_ratio) : '--',
             icon: Database,
             loading: summary.isLoading,
@@ -149,7 +149,7 @@ const Overview = () => {
 
     return (
         <div className="space-y-6">
-            <PageHeader title="概览" description="全局用量、成本与实时流量总览" icon={Activity} />
+            <PageHeader title="概览" description="全局 Token 用量与实时流量总览" icon={Activity} />
 
             <KpiStrip items={kpiItems} />
 
