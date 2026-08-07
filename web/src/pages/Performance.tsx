@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { useLatencyAnalysis } from '../api/hooks';
 import { useUIStore } from '../stores/ui';
 import { formatHourLabel, formatEpochSeconds, presetToRange } from '../lib/time';
-import { formatNumber, formatPercent, formatLatency } from '../lib/format';
+import { formatNumber, formatPercent, formatLatency, formatTokens } from '../lib/format';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { StatCardProps } from '../components/StatCard';
 import type { LatencyTrendPoint } from '../api/types';
@@ -29,6 +29,7 @@ const Performance = () => {
     const { data, isLoading, isError } = useLatencyAnalysis(startTs, endTs, { refetchInterval: 60000 });
     const trend = useMemo<LatencyTrendPoint[]>(() => data?.latency_trend ?? [], [data]);
     const slow: SlowRequest[] = data?.slow_requests ?? [];
+    const percentiles = data?.percentiles;
 
     const categories = useMemo(() => trend.map((p) => formatHourLabel(p.hour)), [trend]);
 
@@ -42,10 +43,15 @@ const Performance = () => {
     const kpiItems: StatCardProps[] = useMemo(() => {
         const n = trend.length;
         const sumRpm = n ? trend.reduce((acc, p) => acc + p.rpm, 0) : 0;
-        const avgLat = n ? trend.reduce((acc, p) => acc + p.avg_latency_ms, 0) / n : NaN;
-        const avgTtft = n ? trend.reduce((acc, p) => acc + p.avg_ttft_ms, 0) / n : NaN;
+        const sumTokens = n ? trend.reduce((acc, p) => acc + p.throughput_total, 0) : 0;
         const avgSuccess = n ? trend.reduce((acc, p) => acc + p.success_rate, 0) / n : NaN;
         return [
+            {
+                label: '吞吐 Token（窗口）',
+                value: n ? formatTokens(sumTokens) : '--',
+                icon: Zap,
+                loading: isLoading,
+            },
             {
                 label: '总请求（窗口）',
                 value: n ? formatNumber(sumRpm, 0) : '--',
@@ -53,14 +59,26 @@ const Performance = () => {
                 loading: isLoading,
             },
             {
-                label: '平均延迟',
-                value: Number.isFinite(avgLat) ? formatLatency(avgLat) : '--',
+                label: 'P50 延迟',
+                value: percentiles ? formatLatency(percentiles.latency_ms.p50) : '--',
                 icon: Timer,
                 loading: isLoading,
             },
             {
-                label: '平均 TTFT',
-                value: Number.isFinite(avgTtft) ? formatLatency(avgTtft) : '--',
+                label: 'P95 延迟',
+                value: percentiles ? formatLatency(percentiles.latency_ms.p95) : '--',
+                icon: Zap,
+                loading: isLoading,
+            },
+            {
+                label: 'P99 延迟',
+                value: percentiles ? formatLatency(percentiles.latency_ms.p99) : '--',
+                icon: Timer,
+                loading: isLoading,
+            },
+            {
+                label: 'P95 TTFT',
+                value: percentiles ? formatLatency(percentiles.ttft_ms.p95) : '--',
                 icon: Zap,
                 loading: isLoading,
             },
@@ -71,7 +89,7 @@ const Performance = () => {
                 loading: isLoading,
             },
         ];
-    }, [trend, isLoading]);
+    }, [trend, percentiles, isLoading]);
 
     const slowColumns: ColumnDef<SlowRequest>[] = [
         { accessorKey: 'id', header: '日志 ID', cell: ({ row }) => formatNumber(row.original.id, 0) },
@@ -105,7 +123,7 @@ const Performance = () => {
 
     return (
         <div className="space-y-6">
-            <PageHeader title="性能分析" description="延迟趋势、TTFT、TPS 与慢请求" icon={Gauge} />
+            <PageHeader title="性能分析" description="Token 吞吐、P50/P95/P99 延迟、TTFT 与慢请求" icon={Gauge} />
 
             {isError ? (
                 <Card>

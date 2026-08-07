@@ -9,8 +9,27 @@ const ALERT_TYPES = {
     LATENCY: 'latency',              // 延迟阈值
     CHANNEL_DOWN: 'channel_down',    // 渠道宕机
     QUOTA_LOW: 'quota_low',          // Token 额度不足
-    REQUEST_SPIKE: 'request_spike'   // 请求量突增
+    REQUEST_SPIKE: 'request_spike',   // 请求量突增
+    TOKEN_SPIKE: 'token_spike',       // Token 用量增长
+    TOKEN_DROP: 'token_drop',         // Token 用量下降
+    CACHE_HIT_DROP: 'cache_hit_drop' // 缓存命中率下降
 };
+
+function percentageChange(current, previous) {
+    if (!Number.isFinite(previous) || previous <= 0) {
+        return 0;
+    }
+    return Number((((current - previous) / previous) * 100).toFixed(2));
+}
+
+function cacheHitDropPercentage(currentHit, currentInput, previousHit, previousInput) {
+    const currentRate = currentInput > 0 ? currentHit / currentInput : 0;
+    const previousRate = previousInput > 0 ? previousHit / previousInput : 0;
+    if (previousRate <= 0) {
+        return 0;
+    }
+    return Number((Math.max(0, (previousRate - currentRate) / previousRate * 100)).toFixed(2));
+}
 
 // ==================== 通知器 ====================
 class Notifier {
@@ -200,7 +219,69 @@ async function checkRequestSpike(rule, now) {
     const current = currentRow?.total || 0;
     const previous = previousRow?.total || 1;
 
-    return previous > 0 ? ((current - previous) / previous * 100) : 0;
+    return percentageChange(current, previous);
+}
+
+async function checkTokenTrend(rule, now) {
+    const periodHours = parseFloat(rule.period) || 1;
+    const currentStart = now - periodHours * 3600;
+    const previousStart = currentStart - periodHours * 3600;
+    const scope = [];
+    const params = [];
+
+    if (rule.type === 'channel') {
+        scope.push(' AND channel_id = ?');
+        params.push(rule.target);
+    } else if (rule.type === 'model') {
+        scope.push(' AND model_name = ?');
+        params.push(rule.target);
+    }
+
+    const expression = 'CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens';
+    const currentRow = await db.getAsync(
+        `SELECT SUM(${expression}) as total FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
+        [currentStart, now, ...params]
+    );
+    const previousRow = await db.getAsync(
+        `SELECT SUM(${expression}) as total FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
+        [previousStart, currentStart, ...params]
+    );
+
+    return percentageChange(currentRow?.total || 0, previousRow?.total || 0);
+}
+
+async function checkCacheHitDrop(rule, now) {
+    const periodHours = parseFloat(rule.period) || 1;
+    const currentStart = now - periodHours * 3600;
+    const previousStart = currentStart - periodHours * 3600;
+    const scope = [];
+    const params = [];
+
+    if (rule.type === 'channel') {
+        scope.push(' AND channel_id = ?');
+        params.push(rule.target);
+    } else if (rule.type === 'model') {
+        scope.push(' AND model_name = ?');
+        params.push(rule.target);
+    }
+
+    const inputExpression = 'CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END';
+    const select = `SUM(cache_hit_tokens) as cache_hit, SUM(${inputExpression}) as input`;
+    const currentRow = await db.getAsync(
+        `SELECT ${select} FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
+        [currentStart, now, ...params]
+    );
+    const previousRow = await db.getAsync(
+        `SELECT ${select} FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
+        [previousStart, currentStart, ...params]
+    );
+
+    return cacheHitDropPercentage(
+        currentRow?.cache_hit || 0,
+        currentRow?.input || 0,
+        previousRow?.cache_hit || 0,
+        previousRow?.input || 0
+    );
 }
 
 // ==================== 记录告警历史 ====================
@@ -294,6 +375,24 @@ async function checkAlerts() {
                     message = `请求量增长 ${currentValue.toFixed(1)}% 超过阈值 ${rule.threshold}%`;
                     break;
 
+                case ALERT_TYPES.TOKEN_SPIKE:
+                    currentValue = await checkTokenTrend(rule, now);
+                    triggered = currentValue > rule.threshold;
+                    message = `Token 用量增长 ${currentValue.toFixed(1)}% 超过阈值 ${rule.threshold}%`;
+                    break;
+
+                case ALERT_TYPES.TOKEN_DROP:
+                    currentValue = Math.max(0, -(await checkTokenTrend(rule, now)));
+                    triggered = currentValue > rule.threshold;
+                    message = `Token 用量下降 ${currentValue.toFixed(1)}% 超过阈值 ${rule.threshold}%`;
+                    break;
+
+                case ALERT_TYPES.CACHE_HIT_DROP:
+                    currentValue = await checkCacheHitDrop(rule, now);
+                    triggered = currentValue > rule.threshold;
+                    message = `缓存命中率下降 ${currentValue.toFixed(1)}% 超过阈值 ${rule.threshold}%`;
+                    break;
+
                 default:
                     // 兼容旧版本的 token_usage 类型
                     currentValue = await checkTokenUsage(rule, now);
@@ -379,5 +478,7 @@ module.exports = {
     checkAlerts, 
     getAlertHistory, 
     ALERT_TYPES,
-    disableChannel 
+    disableChannel,
+    percentageChange,
+    cacheHitDropPercentage
 };

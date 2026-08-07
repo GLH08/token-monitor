@@ -14,6 +14,9 @@ const { getUsageBreakdownByUser, mapTotals } = require('../routes/usage');
 const { aggregateTokenUsage } = require('../routes/tokens');
 const { mapChannelUsage } = require('../routes/channels');
 const { parseUsageFilters } = require('../request');
+const { percentile, summarizePercentiles } = require('../performanceMetrics');
+const { summarizeLogLatencies } = require('../routes/stats');
+const { percentageChange, cacheHitDropPercentage } = require('../alerter');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
@@ -157,6 +160,36 @@ test('mapChannelUsage exposes token-first channel totals', () => {
         throughput_tokens: 120,
         requests: 1
     });
+});
+
+test('summarizePercentiles returns interpolated latency percentiles', () => {
+    assert.equal(percentile([10, 20, 30, 40], 0.5), 25);
+    assert.deepEqual(summarizePercentiles([10, 20, 30, 40]), {
+        count: 4,
+        p50: 25,
+        p95: 38.5,
+        p99: 39.7
+    });
+    assert.deepEqual(summarizePercentiles([]), { count: 0, p50: 0, p95: 0, p99: 0 });
+});
+
+test('summarizeLogLatencies separates request latency and TTFT samples', () => {
+    assert.deepEqual(summarizeLogLatencies([
+        { useTime: 1, other: { frt: 100 } },
+        { useTime: 2, other: { frt: 200 } },
+        { useTime: 3, other: null }
+    ]), {
+        latency_ms: { count: 3, p50: 2000, p95: 2900, p99: 2980 },
+        ttft_ms: { count: 2, p50: 150, p95: 195, p99: 199 }
+    });
+});
+
+test('alert trend helpers calculate token growth and cache decline', () => {
+    assert.equal(percentageChange(120, 100), 20);
+    assert.equal(percentageChange(80, 100), -20);
+    assert.equal(percentageChange(100, 0), 0);
+    assert.equal(cacheHitDropPercentage(20, 100, 50, 100), 60);
+    assert.equal(cacheHitDropPercentage(0, 0, 0, 0), 0);
 });
 
 // --- per-user breakdown: token_id -> user regroup (no usage_stats schema change) ---

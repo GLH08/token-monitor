@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
-const { mapStatsTotals, mapExtendedMetrics, STATS_TOKEN_SUM_SQL } = require('../tokenMetrics');
+const { mapStatsTotals, mapExtendedMetrics, metricsFromLog, STATS_TOKEN_SUM_SQL } = require('../tokenMetrics');
+const { summarizePercentiles } = require('../performanceMetrics');
 const {
     parseTimeRange,
     parseOptionalId,
@@ -12,6 +13,26 @@ const {
 } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
+const LATENCY_SAMPLE_LIMIT = 10000;
+
+function summarizeLogLatencies(logs) {
+    const latencyMs = [];
+    const ttftMs = [];
+    logs.forEach((log) => {
+        const useTimeMs = Number(log.useTime) * 1000;
+        if (Number.isFinite(useTimeMs) && useTimeMs > 0) {
+            latencyMs.push(useTimeMs);
+        }
+        const frtMs = metricsFromLog(log).frtMs;
+        if (frtMs > 0) {
+            ttftMs.push(frtMs);
+        }
+    });
+    return {
+        latency_ms: summarizePercentiles(latencyMs),
+        ttft_ms: summarizePercentiles(ttftMs)
+    };
+}
 
 // C2 extended metric sums (additive on stats). Averages/rates are derived at
 // query time via mapExtendedMetrics (see tokenMetrics.js).
@@ -354,6 +375,16 @@ router.get('/analysis/latency', async (req, res) => {
             select: { id: true, useTime: true, modelName: true, channelId: true, createdAt: true }
         });
 
+        const latencySamples = await prisma.log.findMany({
+            where: {
+                createdAt: { gte: timeRange.startTs, lte: timeRange.endTs },
+                type: 2
+            },
+            orderBy: { createdAt: 'desc' },
+            take: LATENCY_SAMPLE_LIMIT,
+            select: { useTime: true, other: true }
+        });
+
         const rows = await db.allAsync(
             `SELECT hour, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
              SUM(quota) as quota, SUM(error_count) as errors,
@@ -366,6 +397,11 @@ router.get('/analysis/latency', async (req, res) => {
 
         res.json({
             slow_requests: slowRequests.map(r => ({ ...r, createdAt: r.createdAt.toString() })),
+            percentiles: {
+                ...summarizeLogLatencies(latencySamples),
+                sample_count: latencySamples.length,
+                sampled: latencySamples.length === LATENCY_SAMPLE_LIMIT
+            },
             latency_trend: rows.map(r => {
                 const tokenMetrics = withTokenMetrics(r);
                 return {
@@ -472,3 +508,4 @@ router.get('/dashboard/model-distribution', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.summarizeLogLatencies = summarizeLogLatencies;
