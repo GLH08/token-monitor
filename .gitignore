@@ -20,6 +20,7 @@ npm-debug.log*
 # Environment
 .env
 server/.env
+server/temp_env
 
 # Node modules (if running locally)
 node_modules/
