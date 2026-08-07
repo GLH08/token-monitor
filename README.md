@@ -1,6 +1,6 @@
 # Token Monitor
 
-专为 [New API](https://github.com/Calcium-Ion/new-api) / [One API](https://github.com/songquanpeng/one-api) 设计的 Token 用量监控与告警系统。
+专为 [New API](https://github.com/Calcium-Ion/new-api) / [One API](https://github.com/songquanpeng/one-api) 设计的 Token-first 用量分析与告警系统。
 
 ![Dashboard](https://img.shields.io/badge/Dashboard-React-61DAFB?style=flat-square&logo=react)
 ![Backend](https://img.shields.io/badge/Backend-Node.js-339933?style=flat-square&logo=node.js)
@@ -10,7 +10,7 @@
 ## ✨ 功能特性
 
 ### 📊 数据看板
-- 实时统计 Token 消耗、请求数、活跃模型数
+- 实时统计吞吐 Token、输入/输出 Token、缓存 Token、请求数和活跃模型数
 - 支持 1小时/6小时/12小时/24小时/7天/30天 多时间维度
 - 模型消耗分布堆叠图、渠道消耗占比饼图
 - Token 消耗趋势折线图
@@ -19,7 +19,7 @@
 
 ### 🖥️ 渠道监控
 - 渠道状态总览（正常/手动禁用/自动禁用）
-- 渠道性能详情（请求数、Token、费用、错误率、延迟）
+- 渠道性能详情（Token 分布、请求数、错误率、延迟和多 Key 负载）
 - 请求量 Top 10 排行
 - 渠道状态分布饼图
 
@@ -32,7 +32,7 @@
 ### 🔑 Token 管理
 - Token 状态总览（正常/禁用/过期/耗尽）
 - 额度使用情况（已用/剩余/无限）
-- Token 使用次数统计
+- Token 使用趋势、输入/输出和缓存命中率统计
 - 低额度 Token 预警
 - **软删除适配**：自动过滤 New API 中已软删除的 Token 数据
 
@@ -44,13 +44,13 @@
 - 统计筛选结果的 Token 总量和费用
 
 ### ⚡ 性能分析
-- API 平均延迟趋势图
-- 请求量 (RPM) 和 Token 吞吐量 (TPM) 趋势
+- API 平均延迟及 P50/P95/P99 分位数趋势
+- 请求量、Token 吞吐量和 TTFT 分析
 - Top 20 慢请求排行榜
 - 超时请求 (>5s) 红色高亮标识
 
 ### 🚨 告警与自动熔断
-- 6 种告警类型：Token 用量、错误率、延迟、渠道宕机、额度不足、请求突增
+- Token 用量、Token 突增/骤降、缓存命中率下降、错误率、延迟、渠道宕机、额度不足、请求突增
 - Telegram 通知推送
 - 当触发严重警报时可选择**直接禁用该异常渠道**，物理隔离资损风险。
 
@@ -124,16 +124,34 @@ docker compose up -d --build
 **访问即可开始监控**：
 `http://服务器IP:5173`
 
+## 📐 Token 统计口径
+
+Token Monitor 以 New API 的 `logs` 为事实来源，按小时聚合并支持 Token、模型、渠道、用户组和用户维度分析。
+
+- **总输入 Token**：优先使用 `logs.other.input_tokens_total`；缺失时按模型语义回退。
+- **缓存读取 Token**：来自 `cache_tokens` 等标准化或供应商字段。
+- **缓存创建 Token**：来自 `cache_write_tokens` 或供应商缓存写入字段。
+- **未缓存输入 Token**：`max(0, 总输入 - 缓存读取 - 缓存创建)`。
+- **吞吐 Token**：`总输入 Token + completion_tokens`。
+- `prompt_tokens` 保留为上游原始字段，不直接等同于总输入 Token。
+- 金额和 Quota 仅作辅助估算，默认不作为主要排名依据。
+
+性能页面的 P50/P95/P99 来自所选时间窗口的有限源日志样本，并返回样本数和是否达到样本上限。
+
 ## 📝 配置说明 (环境变量)
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
 | `DATABASE_URL` | ✅ | New API 数据库连接字符串（支持 MySQL / PostgreSQL） |
 | `ACCESS_PASSWORD` | ❌ | Web 登录密码 (不填则启用免密直达模式) |
+| `AUTH_SECRET` | ❌ | 登录 Token 签名密钥；不填则使用 `ACCESS_PASSWORD` |
+| `AUTH_TOKEN_TTL_SECONDS` | ❌ | 登录 Token 有效期，默认 `28800` 秒 |
 | `TELEGRAM_BOT_TOKEN` | ❌ | Telegram 机器人 Token |
 | `TELEGRAM_CHAT_ID` | ❌ | Telegram 聊天 ID |
 | `QUOTA_PER_UNIT` | ❌ | 额度转美元的倍率，与 New API 保持一致（默认：`500000`） |
 | `MAX_MONITOR_MODELS` | ❌ | 控制面板展示的最大独立模型数量（默认：`50`） |
+| `DATA_RETENTION_DAYS` | ❌ | 本地聚合数据保留天数（默认：`90`） |
+| `SYNC_MAX_BATCHES_PER_RUN` | ❌ | 单次同步最大批次数（默认：`100`） |
 
 **数据库连接格式示例**：
 - **MySQL**: `mysql://用户名:密码@IP地址:端口/数据库名`
