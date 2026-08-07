@@ -100,17 +100,67 @@ function buildHourlyBuckets(startTs, endTs) {
 
 function mapTotals(row = {}) {
     const quota = row.quota || 0;
+    const promptTokens = row.prompt_tokens || 0;
+    const completionTokens = row.completion_tokens || 0;
+    const totalInputTokens = Number(row.total_input_tokens) > 0
+        ? Number(row.total_input_tokens)
+        : promptTokens;
+    const cacheHitTokens = row.cache_hit_tokens || 0;
+    const cacheCreationTokens = row.cache_creation_tokens || 0;
+    const netInputTokens = Math.max(0, totalInputTokens - cacheHitTokens - cacheCreationTokens);
+    const throughputTotal = totalInputTokens + completionTokens;
     return {
         tokens: row.tokens || 0,
-        prompt_tokens: row.prompt_tokens || 0,
-        completion_tokens: row.completion_tokens || 0,
-        cache_hit_tokens: row.cache_hit_tokens || 0,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_input_tokens: totalInputTokens,
+        net_input_tokens: netInputTokens,
+        throughput_total: throughputTotal,
+        throughput_tokens: throughputTotal,
+        cache_hit_tokens: cacheHitTokens,
         requests: row.requests || 0,
         quota,
         cost: quota / QUOTA_PER_UNIT,
         cost_usd: quota / QUOTA_PER_UNIT,
         errors: row.errors || 0,
         ...mapExtendedMetrics(row)
+    };
+}
+
+const COMPARISON_FIELDS = [
+    'tokens',
+    'prompt_tokens',
+    'completion_tokens',
+    'total_input_tokens',
+    'net_input_tokens',
+    'cache_hit_tokens',
+    'cache_creation_tokens',
+    'throughput_total',
+    'requests',
+    'errors',
+    'image_tokens',
+    'audio_tokens'
+];
+
+function mapPeriodComparison(currentRow = {}, previousRow = {}) {
+    const current = mapTotals(currentRow);
+    const previous = mapTotals(previousRow);
+    const delta = {};
+    const deltaPercent = {};
+
+    COMPARISON_FIELDS.forEach((field) => {
+        const currentValue = Number(current[field]) || 0;
+        const previousValue = Number(previous[field]) || 0;
+        delta[field] = currentValue - previousValue;
+        deltaPercent[field] = previousValue === 0
+            ? (currentValue === 0 ? 0 : null)
+            : Number(((currentValue - previousValue) / previousValue * 100).toFixed(2));
+    });
+
+    return {
+        previous,
+        delta,
+        delta_percent: deltaPercent
     };
 }
 
@@ -121,6 +171,9 @@ function zeroTotals() {
         completion_tokens: 0,
         cache_hit_tokens: 0,
         total_input_tokens: 0,
+        net_input_tokens: 0,
+        throughput_total: 0,
+        throughput_tokens: 0,
         requests: 0,
         quota: 0,
         cost: 0,
@@ -351,25 +404,40 @@ router.get('/summary', async (req, res) => {
     }
 
     const { where, params } = buildUsageWhere(filters);
+    const durationSeconds = Math.max(1, filters.endTs - filters.startTs);
+    const previousFilters = {
+        ...filters,
+        startTs: filters.startTs - durationSeconds - 1,
+        endTs: filters.startTs - 1
+    };
+    const previousQuery = buildUsageWhere(previousFilters);
 
     try {
-        const row = await db.getAsync(
-            `SELECT
+        const summarySql = `SELECT
                 ${METRIC_SUM_SQL},
                 COUNT(DISTINCT user_group) as active_groups,
                 COUNT(DISTINCT channel_id) as active_channels,
                 COUNT(DISTINCT model_name) as active_models,
                 COUNT(DISTINCT token_id) as active_tokens
-             FROM usage_stats ${where}`,
-            params
-        );
+             FROM usage_stats`;
+        const [row, previousRow] = await Promise.all([
+            db.getAsync(
+                `${summarySql} ${where}`,
+                params
+            ),
+            db.getAsync(
+                `${summarySql} ${previousQuery.where}`,
+                previousQuery.params
+            )
+        ]);
 
         res.json({
             ...mapTotals(row),
             active_groups: row?.active_groups || 0,
             active_channels: row?.active_channels || 0,
             active_models: row?.active_models || 0,
-            active_tokens: row?.active_tokens || 0
+            active_tokens: row?.active_tokens || 0,
+            comparison: mapPeriodComparison(row, previousRow)
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -478,3 +546,4 @@ router.get('/timeseries', async (req, res) => {
 module.exports = router;
 module.exports.getUsageBreakdownByUser = getUsageBreakdownByUser;
 module.exports.mapTotals = mapTotals;
+module.exports.mapPeriodComparison = mapPeriodComparison;

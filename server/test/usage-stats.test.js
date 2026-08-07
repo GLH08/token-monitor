@@ -19,6 +19,9 @@ const {
     extractRequestId
 } = require('../routes/logs');
 const {
+    mapPeriodComparison
+} = require('../routes/usage');
+const {
     getModelStatus
 } = require('../modelStatus');
 
@@ -82,6 +85,46 @@ test('applyRequestIdFilter searches request column and payload fields', () => {
     const untouched = { type: 5 };
     applyRequestIdFilter(untouched, '   ');
     assert.deepEqual(untouched, { type: 5 });
+});
+
+test('mapPeriodComparison reports token deltas without using cost values', () => {
+    const comparison = mapPeriodComparison({
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        cache_hit_tokens: 30,
+        cache_creation_tokens: 10,
+        total_input_tokens: 100,
+        tokens: 120,
+        requests: 4,
+        errors: 1
+    }, {
+        prompt_tokens: 50,
+        completion_tokens: 10,
+        cache_hit_tokens: 15,
+        cache_creation_tokens: 5,
+        total_input_tokens: 50,
+        tokens: 60,
+        requests: 2,
+        errors: 0
+    });
+
+    assert.deepEqual(comparison.delta, {
+        tokens: 60,
+        prompt_tokens: 50,
+        completion_tokens: 10,
+        total_input_tokens: 50,
+        net_input_tokens: 30,
+        cache_hit_tokens: 15,
+        cache_creation_tokens: 5,
+        throughput_total: 60,
+        requests: 2,
+        errors: 1,
+        image_tokens: 0,
+        audio_tokens: 0
+    });
+    assert.equal(comparison.delta_percent.tokens, 100);
+    assert.equal(comparison.delta_percent.errors, null);
+    assert.equal(comparison.previous.tokens, 60);
 });
 
 test('updateUsageStats aggregates usage dimensions and cache hit tokens', async () => {
