@@ -167,7 +167,10 @@ router.get('/:id/usage', async (req, res) => {
             const logs = await prisma.log.findMany({
             where: {
                 tokenId,
-                createdAt: { gte: timeRange.startTs, lte: timeRange.endTs },
+                createdAt: {
+                    gte: BigInt(timeRange.startTs),
+                    lte: BigInt(timeRange.endTs)
+                },
                 type: 2
             },
             select: {

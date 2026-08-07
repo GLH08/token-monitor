@@ -367,7 +367,10 @@ router.get('/analysis/latency', async (req, res) => {
     try {
         const slowRequests = await prisma.log.findMany({
             where: {
-                createdAt: { gte: timeRange.startTs, lte: timeRange.endTs },
+                createdAt: {
+                    gte: BigInt(timeRange.startTs),
+                    lte: BigInt(timeRange.endTs)
+                },
                 type: 2
             },
             orderBy: { useTime: 'desc' },
@@ -377,7 +380,10 @@ router.get('/analysis/latency', async (req, res) => {
 
         const latencySamples = await prisma.log.findMany({
             where: {
-                createdAt: { gte: timeRange.startTs, lte: timeRange.endTs },
+                createdAt: {
+                    gte: BigInt(timeRange.startTs),
+                    lte: BigInt(timeRange.endTs)
+                },
                 type: 2
             },
             orderBy: { createdAt: 'desc' },

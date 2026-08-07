@@ -300,7 +300,7 @@ async function checkLargeRequest(rule, now) {
     const periodHours = parseFloat(rule.period) || 1;
     const startTime = now - periodHours * 3600;
     const where = {
-        createdAt: { gte: startTime },
+        createdAt: { gte: BigInt(Math.floor(startTime)) },
         type: 2
     };
     if (rule.type === 'channel') {
