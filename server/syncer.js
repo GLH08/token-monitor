@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const db = require('./db');
 const { metricsFromLog, parseCacheHitTokens } = require('./tokenMetrics');
+const { parseChannelInfo } = require('./channelInfo');
 
 const prisma = new PrismaClient();
 
@@ -584,25 +585,17 @@ async function syncChannelSnapshots() {
         channels.forEach(ch => {
             let keyStatusJson = null;
             let newKeyStatus = null;
-            if (ch.channelInfo) {
-                try {
-                    const info = typeof ch.channelInfo === 'string'
-                        ? JSON.parse(ch.channelInfo)
-                        : ch.channelInfo;
-                    if (info && info.is_multi_key) {
-                        newKeyStatus = {
-                            multi_key_size: info.multi_key_size || 0,
-                            multi_key_mode: info.multi_key_mode || null,
-                            status_list: info.multi_key_status_list || {},
-                            disabled_reason: info.multi_key_disabled_reason || {},
-                            disabled_time: info.multi_key_disabled_time || {},
-                            polling_index: info.multi_key_polling_index || 0
-                        };
-                        keyStatusJson = JSON.stringify(newKeyStatus);
-                    }
-                } catch {
-                    // Ignore parse errors
-                }
+            const info = parseChannelInfo(ch.channelInfo);
+            if (info && info.is_multi_key) {
+                newKeyStatus = {
+                    multi_key_size: info.multi_key_size || 0,
+                    multi_key_mode: info.multi_key_mode || null,
+                    status_list: info.multi_key_status_list || {},
+                    disabled_reason: info.multi_key_disabled_reason || {},
+                    disabled_time: info.multi_key_disabled_time || {},
+                    polling_index: info.multi_key_polling_index || 0
+                };
+                keyStatusJson = JSON.stringify(newKeyStatus);
             }
 
             // Detect key status changes by comparing with previous snapshot

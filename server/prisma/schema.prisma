@@ -44,10 +44,10 @@ model Channel {
   id                 Int      @id @default(autoincrement())
   type               Int      @default(0)
   key                String   @db.Text
-  openaiOrganization String?  @map("openai_organization")
+  openaiOrganization String?  @map("open_ai_organization")
   testModel          String?  @map("test_model")
   status             Int      @default(1) // 1=启用, 2=手动禁用, 3=自动禁用
-  name               String
+  name               String?
   weight             Int?     @default(0)
   createdTime        BigInt?  @map("created_time")
   testTime           BigInt?  @map("test_time")
@@ -69,7 +69,7 @@ model Channel {
   paramOverride      String?  @map("param_override") @db.Text
   headerOverride     String?  @map("header_override") @db.Text
   remark             String?  @db.VarChar(255)
-  channelInfo        String?  @map("channel_info") @db.Text // JSON: 多Key管理
+  channelInfo        Json?    @map("channel_info") // JSON: 多Key管理
   otherSettings      String?  @map("settings") @db.Text     // 其他设置(azure版本等)
 
   @@map("channels")
@@ -81,7 +81,7 @@ model Channel {
 model Token {
   id                 Int       @id @default(autoincrement())
   userId             Int       @map("user_id")
-  key                String    @unique @db.Char(48)
+  key                String    @unique @db.VarChar(128)
   status             Int       @default(1) // 1=启用, 2=禁用, 3=过期, 4=耗尽
   name               String
   createdTime        BigInt?   @map("created_time")

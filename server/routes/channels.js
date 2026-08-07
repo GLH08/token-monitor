@@ -3,19 +3,9 @@ const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
 const { parseTimeRange, sendValidationError } = require('../request');
+const { parseChannelInfo } = require('../channelInfo');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
-
-// Parse channel_info JSON. Returns null on parse failure or empty input.
-function parseChannelInfo(raw) {
-    if (!raw) return null;
-    try {
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch {
-        return null;
-    }
-}
 
 // Mask an API key for display: show first 4 and last 4 chars.
 function maskKey(key) {
