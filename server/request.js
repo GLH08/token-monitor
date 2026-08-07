@@ -145,7 +145,7 @@ function parseUsageDimension(value, defaultValue = 'model') {
     return parseWindow(value, ['group', 'channel', 'model', 'token', 'user'], defaultValue);
 }
 
-function parseUsageMetric(value, defaultValue = 'cost') {
+function parseUsageMetric(value, defaultValue = 'tokens') {
     return parseWindow(value, ['cost', 'tokens', 'requests', 'quota', 'cache_hit_ratio', 'image_tokens', 'audio_tokens', 'success_rate', 'avg_latency_ms', 'avg_ttft_ms', 'tps'], defaultValue);
 }
 

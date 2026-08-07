@@ -11,6 +11,8 @@ const db = require('../db');
 const { prisma } = require('../syncer');
 const { mapExtendedMetrics } = require('../tokenMetrics');
 const { getUsageBreakdownByUser, mapTotals } = require('../routes/usage');
+const { aggregateTokenUsage } = require('../routes/tokens');
+const { parseUsageFilters } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
@@ -89,6 +91,48 @@ test('mapTotals includes cost_usd and derived metrics', () => {
     assert.equal(t.cache_hit_ratio, 0.3333); // 20/60 rounded to 4dp
     assert.equal(t.success_rate, 0.8);       // 1 - 1/5
     assert.equal(t.avg_latency_ms, 2000);    // 10/5*1000
+});
+
+test('usage filters default to tokens', () => {
+    const filters = parseUsageFilters({
+        start_ts: '1710000000',
+        end_ts: '1710003600'
+    });
+
+    assert.equal(filters.metric, 'tokens');
+});
+
+test('aggregateTokenUsage returns canonical token fields from logs', () => {
+    const rows = aggregateTokenUsage([
+        {
+            createdAt: 1710000100,
+            promptTokens: 80,
+            completionTokens: 20,
+            quota: 100,
+            other: JSON.stringify({
+                input_tokens_total: 100,
+                cache_tokens: 30,
+                cache_write_tokens: 10
+            })
+        }
+    ]);
+
+    assert.deepEqual(rows, [{
+        hour: 1710000000,
+        quota: 100,
+        requests: 1,
+        tokens: 100,
+        prompt_tokens: 80,
+        completion_tokens: 20,
+        cache_read_tokens: 30,
+        cache_creation_tokens: 10,
+        total_input_tokens: 100,
+        net_input_tokens: 60,
+        throughput_total: 120,
+        throughput_tokens: 120,
+        image_tokens: 0,
+        audio_tokens: 0
+    }]);
 });
 
 // --- per-user breakdown: token_id -> user regroup (no usage_stats schema change) ---
