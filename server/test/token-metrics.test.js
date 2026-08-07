@@ -268,6 +268,27 @@ test('metricsFromLog handles claude cache sample end-to-end', () => {
     assert.equal(metrics.netInputTokens, 2000);
 });
 
+test('metricsFromLog exposes canonical token aliases without changing legacy fields', () => {
+    const metrics = metricsFromLog({
+        promptTokens: 80,
+        completionTokens: 20,
+        other: JSON.stringify({
+            input_tokens_total: 100,
+            cache_tokens: 30,
+            cache_write_tokens: 10
+        })
+    });
+
+    assert.equal(metrics.totalInputTokens, 100);
+    assert.equal(metrics.cacheReadTokens, 30);
+    assert.equal(metrics.cacheCreationTokens, 10);
+    assert.equal(metrics.uncachedInputTokens, 60);
+    assert.equal(metrics.outputTokens, 20);
+    assert.equal(metrics.throughputTokens, 120);
+    assert.equal(metrics.netInputTokens, 60);
+    assert.equal(metrics.throughputTotal, 120);
+});
+
 // --- tolerance ---
 
 test('metricsFromLog is tolerant of null / invalid other and missing useTime', () => {
