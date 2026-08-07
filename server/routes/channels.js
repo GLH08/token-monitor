@@ -30,6 +30,24 @@ function mapChannelUsage(row = {}) {
     };
 }
 
+function mapChannelKeyUsage(row = {}) {
+    const promptTokens = Number(row.prompt_tokens) || 0;
+    const completionTokens = Number(row.completion_tokens) || 0;
+    const totalInputTokens = Number(row.total_input_tokens) > 0
+        ? Number(row.total_input_tokens)
+        : promptTokens;
+    const throughputTotal = totalInputTokens + completionTokens;
+    return {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        tokens: Number(row.tokens) || promptTokens + completionTokens,
+        total_input_tokens: totalInputTokens,
+        throughput_total: throughputTotal,
+        throughput_tokens: throughputTotal,
+        requests: Number(row.requests) || 0
+    };
+}
+
 // Mask an API key for display: show first 4 and last 4 chars.
 function maskKey(key) {
     if (!key || typeof key !== 'string') return '****';
@@ -186,6 +204,7 @@ router.get('/:id/keys', async (req, res) => {
             const errors = s.errors || 0;
             const quota = s.quota || 0;
             const useTimeSumSec = s.use_time_sum_sec || 0;
+            const tokenUsage = mapChannelKeyUsage(s);
             keys.push({
                 key_index: idx,
                 key_label: maskKey(rawKeys[idx] || ''),
@@ -195,9 +214,7 @@ router.get('/:id/keys', async (req, res) => {
                 requests,
                 errors,
                 error_rate: requests > 0 ? Number((errors / requests).toFixed(4)) : 0,
-                prompt_tokens: s.prompt_tokens || 0,
-                completion_tokens: s.completion_tokens || 0,
-                tokens: s.tokens || 0,
+                ...tokenUsage,
                 quota,
                 cost_usd: quota / QUOTA_PER_UNIT,
                 avg_latency_ms: requests > 0 ? Math.round((useTimeSumSec / requests) * 1000) : 0,
@@ -234,3 +251,4 @@ router.get('/', async (req, res) => {
 
 module.exports = router;
 module.exports.mapChannelUsage = mapChannelUsage;
+module.exports.mapChannelKeyUsage = mapChannelKeyUsage;

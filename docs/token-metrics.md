@@ -13,6 +13,7 @@ Token Monitor 的主要统计对象是 Token，金额和 Quota 只用于辅助�
 | `net_input_tokens` | `max(0, total_input - cache_read - cache_creation)` | 未缓存输入 Token |
 | `completion_tokens` | new-api 原始字段 | 输出 Token |
 | `throughput_total` | `total_input_tokens + completion_tokens` | 输入加输出的吞吐 Token |
+| `throughput_tokens` | `throughput_total` 的兼容别名 | API/UI 统一使用的吞吐 Token |
 
 `metricsFromLog()` 会保留旧字段 `cacheHitTokens`、`throughputTotal`，同时提供 `cacheReadTokens`、`uncachedInputTokens`、`outputTokens` 和 `throughputTokens` 标准别名，保证已有调用方兼容。
 
@@ -38,7 +39,9 @@ hour + user_group + channel_id + model_name + token_id
 - `avg_latency_ms`：`use_time` 秒转换为毫秒后的平均请求耗时。
 - `avg_ttft_ms`：`other.frt` 的平均首 Token 延迟。
 - `tps`：吞吐 Token 除以总耗时秒数。
-- `/api/analysis/latency` 额外返回窗口级 P50/P95/P99 延迟和 TTFT；同时返回样本数量以及是否达到样本上限。
+- `/api/analysis/latency` 额外返回窗口级 P50/P95/P99 延迟和 TTFT；同时返回样本数量、是否达到样本上限以及 `sample_scope`。达到 10,000 条上限时，百分位代表窗口内最近样本，而不是完整窗口。
+
+告警的 `today`/`daily` 周期按服务器本地自然日计算；Token 趋势、缓存命中率和多 Key 失衡均以吞吐 Token作为主口径。当前窗口无输入时不触发缓存命中率下降告警。
 
 ## 金额限制
 

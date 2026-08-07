@@ -312,7 +312,7 @@ export interface ModelAnalysisResponse {
 
 export interface ChannelOverviewRow {
     id: number;
-    name: string;
+    name: string | null;
     type: number;
     /** 1=enabled, 2=manually disabled, 3=auto-disabled. */
     status: number;
@@ -365,6 +365,8 @@ export interface ChannelKeyDetail {
     prompt_tokens: number;
     completion_tokens: number;
     tokens: number;
+    throughput_total: number;
+    throughput_tokens: number;
     quota: number;
     cost_usd: number;
     avg_latency_ms: number;
@@ -375,7 +377,7 @@ export interface ChannelKeyDetail {
 
 export interface ChannelKeysResponse {
     channel_id: number;
-    channel_name: string;
+    channel_name: string | null;
     is_multi_key: boolean;
     multi_key_mode?: string;
     multi_key_size?: number;
@@ -423,6 +425,7 @@ export interface LatencyAnalysisResponse {
         ttft_ms: { count: number; p50: number; p95: number; p99: number };
         sample_count: number;
         sampled: boolean;
+        sample_scope: 'full' | 'latest';
     };
     latency_trend: LatencyTrendPoint[];
 }

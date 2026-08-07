@@ -25,7 +25,38 @@ function percentageChange(current, previous) {
     return Number((((current - previous) / previous) * 100).toFixed(2));
 }
 
+function resolveAlertPeriod(rule = {}, now, defaultHours = 1) {
+    let startTime;
+    if (rule.period === 'custom') {
+        startTime = Number(rule.customStartTs) || now - defaultHours * 3600;
+    } else if (rule.period === 'today' || rule.period === 'daily') {
+        const todayStart = new Date(now * 1000);
+        todayStart.setHours(0, 0, 0, 0);
+        startTime = Math.floor(todayStart.getTime() / 1000);
+    } else {
+        const periodHours = parseFloat(rule.period) || defaultHours;
+        startTime = now - periodHours * 3600;
+    }
+
+    const normalizedStart = Math.floor(startTime);
+    return {
+        startTime: normalizedStart,
+        durationSeconds: Math.max(1, now - normalizedStart)
+    };
+}
+
+function resolveAlertStatsWindow(rule, now, defaultHours = 1) {
+    const period = resolveAlertPeriod(rule, now, defaultHours);
+    const endTime = Math.floor(now / 3600) * 3600;
+    const currentStart = Math.floor(period.startTime / 3600) * 3600;
+    const durationSeconds = Math.max(3600, Math.floor(period.durationSeconds / 3600) * 3600);
+    return { currentStart, endTime, previousStart: currentStart - durationSeconds };
+}
+
 function cacheHitDropPercentage(currentHit, currentInput, previousHit, previousInput) {
+    if (currentInput <= 0) {
+        return 0;
+    }
     const currentRate = currentInput > 0 ? currentHit / currentInput : 0;
     const previousRate = previousInput > 0 ? previousHit / previousInput : 0;
     if (previousRate <= 0) {
@@ -96,19 +127,9 @@ async function disableChannel(channelId) {
 // ==================== 告警检查函数 ====================
 
 async function checkTokenUsage(rule, now) {
-    let startTime;
-    if (rule.period === 'custom') {
-        startTime = rule.customStartTs || (now - 24 * 3600);
-    } else if (rule.period === 'today' || rule.period === 'daily') {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        startTime = Math.floor(todayStart.getTime() / 1000);
-    } else {
-        const periodHours = parseFloat(rule.period) || 24;
-        startTime = now - periodHours * 3600;
-    }
+    const { startTime } = resolveAlertPeriod(rule, now, 24);
 
-    let query = "SELECT SUM(tokens) as total FROM stats WHERE hour >= ?";
+    let query = "SELECT SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as total FROM stats WHERE hour >= ?";
     const params = [startTime];
 
     if (rule.type === 'channel') {
@@ -124,8 +145,7 @@ async function checkTokenUsage(rule, now) {
 }
 
 async function checkErrorRate(rule, now) {
-    const periodHours = parseFloat(rule.period) || 1;
-    const startTime = now - periodHours * 3600;
+    const { startTime } = resolveAlertPeriod(rule, now);
 
     let whereClause = "hour >= ?";
     const params = [startTime];
@@ -150,8 +170,7 @@ async function checkErrorRate(rule, now) {
 }
 
 async function checkLatency(rule, now) {
-    const periodHours = parseFloat(rule.period) || 1;
-    const startTime = now - periodHours * 3600;
+    const { startTime } = resolveAlertPeriod(rule, now);
 
     let whereClause = "hour >= ? AND request_count > 0";
     const params = [startTime];
@@ -204,9 +223,7 @@ async function checkQuotaLow(threshold) {
 }
 
 async function checkRequestSpike(rule, now) {
-    const periodHours = parseFloat(rule.period) || 1;
-    const currentStart = now - periodHours * 3600;
-    const previousStart = currentStart - periodHours * 3600;
+    const { currentStart, endTime, previousStart } = resolveAlertStatsWindow(rule, now);
 
     let whereClause = "";
     const params = [];
@@ -221,7 +238,7 @@ async function checkRequestSpike(rule, now) {
 
     const currentRow = await db.getAsync(
         `SELECT SUM(request_count) as total FROM stats WHERE hour >= ? AND hour < ?${whereClause}`,
-        [currentStart, now, ...params]
+        [currentStart, endTime, ...params]
     );
     const previousRow = await db.getAsync(
         `SELECT SUM(request_count) as total FROM stats WHERE hour >= ? AND hour < ?${whereClause}`,
@@ -235,9 +252,7 @@ async function checkRequestSpike(rule, now) {
 }
 
 async function checkTokenTrend(rule, now) {
-    const periodHours = parseFloat(rule.period) || 1;
-    const currentStart = now - periodHours * 3600;
-    const previousStart = currentStart - periodHours * 3600;
+    const { currentStart, endTime, previousStart } = resolveAlertStatsWindow(rule, now);
     const scope = [];
     const params = [];
 
@@ -252,7 +267,7 @@ async function checkTokenTrend(rule, now) {
     const expression = 'CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens';
     const currentRow = await db.getAsync(
         `SELECT SUM(${expression}) as total FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
-        [currentStart, now, ...params]
+        [currentStart, endTime, ...params]
     );
     const previousRow = await db.getAsync(
         `SELECT SUM(${expression}) as total FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
@@ -263,9 +278,7 @@ async function checkTokenTrend(rule, now) {
 }
 
 async function checkCacheHitDrop(rule, now) {
-    const periodHours = parseFloat(rule.period) || 1;
-    const currentStart = now - periodHours * 3600;
-    const previousStart = currentStart - periodHours * 3600;
+    const { currentStart, endTime, previousStart } = resolveAlertStatsWindow(rule, now);
     const scope = [];
     const params = [];
 
@@ -281,7 +294,7 @@ async function checkCacheHitDrop(rule, now) {
     const select = `SUM(cache_hit_tokens) as cache_hit, SUM(${inputExpression}) as input`;
     const currentRow = await db.getAsync(
         `SELECT ${select} FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
-        [currentStart, now, ...params]
+        [currentStart, endTime, ...params]
     );
     const previousRow = await db.getAsync(
         `SELECT ${select} FROM stats WHERE hour >= ? AND hour < ?${scope.join('')}`,
@@ -297,8 +310,7 @@ async function checkCacheHitDrop(rule, now) {
 }
 
 async function checkLargeRequest(rule, now) {
-    const periodHours = parseFloat(rule.period) || 1;
-    const startTime = now - periodHours * 3600;
+    const { startTime } = resolveAlertPeriod(rule, now);
     const where = {
         createdAt: { gte: BigInt(Math.floor(startTime)) },
         type: 2
@@ -322,15 +334,16 @@ async function checkMultiKeyImbalance(rule, now) {
     if (rule.type !== 'channel' || !rule.target) {
         return 0;
     }
-    const periodHours = parseFloat(rule.period) || 1;
+    const { currentStart, endTime } = resolveAlertStatsWindow(rule, now);
     const rows = await db.allAsync(
-        `SELECT key_index, SUM(tokens) as tokens
+        `SELECT key_index,
+                SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as throughput_total
          FROM key_stats
          WHERE channel_id = ? AND hour >= ? AND hour < ?
          GROUP BY key_index`,
-        [Number(rule.target), now - periodHours * 3600, now]
+        [Number(rule.target), currentStart, endTime]
     );
-    return maxSharePercentage(rows.map((row) => row.tokens));
+    return maxSharePercentage(rows.map((row) => row.throughput_total));
 }
 
 // ==================== 记录告警历史 ====================
@@ -542,5 +555,6 @@ module.exports = {
     disableChannel,
     percentageChange,
     cacheHitDropPercentage,
-    maxSharePercentage
+    maxSharePercentage,
+    resolveAlertPeriod
 };

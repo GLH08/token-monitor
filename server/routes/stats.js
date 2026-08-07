@@ -406,7 +406,8 @@ router.get('/analysis/latency', async (req, res) => {
             percentiles: {
                 ...summarizeLogLatencies(latencySamples),
                 sample_count: latencySamples.length,
-                sampled: latencySamples.length === LATENCY_SAMPLE_LIMIT
+                sampled: latencySamples.length === LATENCY_SAMPLE_LIMIT,
+                sample_scope: latencySamples.length === LATENCY_SAMPLE_LIMIT ? 'latest' : 'full'
             },
             latency_trend: rows.map(r => {
                 const tokenMetrics = withTokenMetrics(r);

@@ -100,7 +100,8 @@ test('mapStatsTotals mirrors aggregate row semantics', () => {
         tokens: 5429000,
         total_input_tokens: 5400000,
         net_input_tokens: 1660000,
-        throughput_total: 5429000
+        throughput_total: 5429000,
+        throughput_tokens: 5429000
     });
 });
 
@@ -120,7 +121,8 @@ test('mapStatsTotals derives net input from total_input_tokens when backfilled',
         tokens: 250,
         total_input_tokens: 1100,
         net_input_tokens: 200,      // 1100 - 800 - 100
-        throughput_total: 1150      // 1100 + 50
+        throughput_total: 1150,     // 1100 + 50
+        throughput_tokens: 1150
     });
 });
 

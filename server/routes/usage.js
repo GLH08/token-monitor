@@ -36,6 +36,14 @@ const METRIC_COLUMNS = {
 
 const DERIVED_METRICS = new Set(['cache_hit_ratio', 'success_rate', 'avg_latency_ms', 'avg_ttft_ms', 'tps']);
 
+function buildMetricOrder(metric) {
+    if (metric === 'tokens') {
+        return `CASE WHEN SUM(total_input_tokens) > 0 THEN SUM(total_input_tokens)
+                ELSE SUM(prompt_tokens) END + SUM(completion_tokens)`;
+    }
+    return `SUM(${METRIC_COLUMNS[metric] || METRIC_COLUMNS.tokens})`;
+}
+
 // Shared SUM projection for usage_stats aggregate rows (base + C2 extended sums).
 // Averages/rates are derived at query time from these sums (see mapExtendedMetrics).
 const METRIC_SUM_SQL = `
@@ -462,9 +470,10 @@ router.get('/breakdown', async (req, res) => {
             // For derived (ratio/average) metrics the SQL proxy order is not
             // exact, so fetch all rows and rank in JS after computing the value.
             const isDerived = DERIVED_METRICS.has(filters.metric);
+            const orderExpression = isDerived ? `SUM(${metricColumn})` : buildMetricOrder(filters.metric);
             const orderClause = isDerived
-                ? `ORDER BY SUM(${metricColumn}) DESC`
-                : `ORDER BY SUM(${metricColumn}) DESC LIMIT ?`;
+                ? `ORDER BY ${orderExpression} DESC`
+                : `ORDER BY ${orderExpression} DESC LIMIT ?`;
             const queryParams = isDerived ? params : [...params, filters.limit];
 
             const rawRows = await db.allAsync(
@@ -547,3 +556,4 @@ module.exports = router;
 module.exports.getUsageBreakdownByUser = getUsageBreakdownByUser;
 module.exports.mapTotals = mapTotals;
 module.exports.mapPeriodComparison = mapPeriodComparison;
+module.exports.buildMetricOrder = buildMetricOrder;

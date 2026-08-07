@@ -324,7 +324,8 @@ function mapStatsTotals(row = {}) {
         tokens,
         total_input_tokens: totalInputTokens,
         net_input_tokens: netInputTokens,
-        throughput_total: throughputTotal
+        throughput_total: throughputTotal,
+        throughput_tokens: throughputTotal
     };
 }
 
@@ -341,6 +342,7 @@ function mapExtendedMetrics(row = {}) {
     const requests = row.requests ?? row.request_count ?? 0;
     const errors = row.errors ?? row.error_count ?? 0;
     const tokens = row.tokens || 0;
+    const completionTokens = row.completion_tokens || 0;
     const useTimeSumSec = row.use_time_sum_sec || 0;
     const firstTokenMsSum = row.first_token_ms_sum || 0;
     const firstTokenCount = row.first_token_count || 0;
@@ -349,17 +351,20 @@ function mapExtendedMetrics(row = {}) {
     const totalInputTokens = Number(row.total_input_tokens) > 0
         ? Number(row.total_input_tokens)
         : (row.prompt_tokens || 0);
+    const throughputTotal = totalInputTokens + completionTokens;
 
     return {
         cache_creation_tokens: row.cache_creation_tokens || 0,
         image_tokens: row.image_tokens || 0,
         audio_tokens: row.audio_tokens || 0,
         total_input_tokens: totalInputTokens,
+        throughput_total: throughputTotal,
+        throughput_tokens: throughputTotal,
         cache_hit_ratio: totalInputTokens > 0 ? Number((cacheHitTokens / totalInputTokens).toFixed(4)) : 0,
         success_rate: requests > 0 ? Number((1 - errors / requests).toFixed(4)) : 0,
         avg_latency_ms: requests > 0 ? Math.round((useTimeSumSec / requests) * 1000) : 0,
         avg_ttft_ms: firstTokenCount > 0 ? Math.round(firstTokenMsSum / firstTokenCount) : 0,
-        tps: useTimeSumSec > 0 ? Number((tokens / useTimeSumSec).toFixed(2)) : 0
+        tps: useTimeSumSec > 0 ? Number((throughputTotal / useTimeSumSec).toFixed(2)) : 0
     };
 }
 

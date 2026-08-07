@@ -134,6 +134,11 @@ const Performance = () => {
             ) : (
                 <>
                     <KpiStrip items={kpiItems} />
+                    {percentiles?.sample_scope === 'latest' && (
+                        <p className="text-xs text-muted-foreground">
+                            百分位基于窗口内最近 10,000 条成功请求样本。
+                        </p>
+                    )}
 
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                         {charts.map((c) => (

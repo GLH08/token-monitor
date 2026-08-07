@@ -73,7 +73,7 @@ function KeyDetailTable({ keys, currencyMode }: { keys: ChannelKeyDetail[]; curr
                                     {formatPercent(k.error_rate)}
                                 </span>
                             </TableCell>
-                            <TableCell className="text-right tabular-nums">{formatNumber(k.tokens, 0)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{formatNumber(k.throughput_total, 0)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatKeyCost(k.quota)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatLatency(k.avg_latency_ms)}</TableCell>
                         </TableRow>
@@ -91,7 +91,7 @@ const Channels = () => {
     const channels = data?.channels ?? [];
     const statusCount = data?.statusCount;
 
-    const [selectedChannel, setSelectedChannel] = useState<{ id: number; name: string } | null>(null);
+    const [selectedChannel, setSelectedChannel] = useState<{ id: number; name: string | null } | null>(null);
 
     const { data: keysData, isLoading: keysLoading, isError: keysError } = useQuery({
         queryKey: ['channel-keys', selectedChannel?.id],
@@ -285,8 +285,8 @@ const Channels = () => {
                                 <p className="mb-2 text-sm font-medium text-muted-foreground">Token 分布</p>
                                 <DistributionPie
                                     data={keysData.keys
-                                        .filter(k => k.tokens > 0)
-                                        .map(k => ({ name: `密钥#${k.key_index}`, value: Number(k.tokens) }))}
+                                        .filter(k => k.throughput_total > 0)
+                                        .map(k => ({ name: `密钥#${k.key_index}`, value: Number(k.throughput_total) }))}
                                     height={220}
                                 />
                             </div>
