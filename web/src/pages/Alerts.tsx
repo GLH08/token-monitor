@@ -64,6 +64,8 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
     token_spike: 'Token 用量突增',
     token_drop: 'Token 用量骤降',
     cache_hit_drop: '缓存命中率下降',
+    large_request: '单请求 Token 过大',
+    multi_key_imbalance: '多 Key Token 失衡',
 };
 
 const FALLBACK_ALERT_TYPES = [
@@ -76,6 +78,8 @@ const FALLBACK_ALERT_TYPES = [
     'token_spike',
     'token_drop',
     'cache_hit_drop',
+    'large_request',
+    'multi_key_imbalance',
 ];
 
 const PERIOD_OPTIONS: { value: string; label: string }[] = [
@@ -114,6 +118,7 @@ function needsTarget(alertType: string): boolean {
     return [
         'token_usage', 'error_rate', 'latency', 'request_spike',
         'token_spike', 'token_drop', 'cache_hit_drop',
+        'large_request', 'multi_key_imbalance',
     ].includes(alertType);
 }
 
@@ -142,6 +147,10 @@ function thresholdLabel(alertType: string): string {
             return 'Token 变化阈值 (%)';
         case 'cache_hit_drop':
             return '缓存命中率下降阈值 (%)';
+        case 'large_request':
+            return '单请求 Token 阈值';
+        case 'multi_key_imbalance':
+            return '最大 Key 占比阈值 (%)';
         default:
             return '阈值';
     }

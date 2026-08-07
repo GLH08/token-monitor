@@ -16,7 +16,7 @@ const { mapChannelUsage } = require('../routes/channels');
 const { parseUsageFilters } = require('../request');
 const { percentile, summarizePercentiles } = require('../performanceMetrics');
 const { summarizeLogLatencies } = require('../routes/stats');
-const { percentageChange, cacheHitDropPercentage } = require('../alerter');
+const { percentageChange, cacheHitDropPercentage, maxSharePercentage } = require('../alerter');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
@@ -190,6 +190,8 @@ test('alert trend helpers calculate token growth and cache decline', () => {
     assert.equal(percentageChange(100, 0), 0);
     assert.equal(cacheHitDropPercentage(20, 100, 50, 100), 60);
     assert.equal(cacheHitDropPercentage(0, 0, 0, 0), 0);
+    assert.equal(maxSharePercentage([25, 25, 50]), 50);
+    assert.equal(maxSharePercentage([]), 0);
 });
 
 // --- per-user breakdown: token_id -> user regroup (no usage_stats schema change) ---

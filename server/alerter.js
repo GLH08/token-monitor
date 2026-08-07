@@ -1,6 +1,7 @@
 const db = require('./db');
 const axios = require('axios');
 const { prisma } = require('./syncer');
+const { metricsFromLog } = require('./tokenMetrics');
 
 // ==================== 告警类型 ====================
 const ALERT_TYPES = {
@@ -12,7 +13,9 @@ const ALERT_TYPES = {
     REQUEST_SPIKE: 'request_spike',   // 请求量突增
     TOKEN_SPIKE: 'token_spike',       // Token 用量增长
     TOKEN_DROP: 'token_drop',         // Token 用量下降
-    CACHE_HIT_DROP: 'cache_hit_drop' // 缓存命中率下降
+    CACHE_HIT_DROP: 'cache_hit_drop', // 缓存命中率下降
+    LARGE_REQUEST: 'large_request',   // 单请求 Token 过大
+    MULTI_KEY_IMBALANCE: 'multi_key_imbalance' // 多 Key Token 分布失衡
 };
 
 function percentageChange(current, previous) {
@@ -29,6 +32,15 @@ function cacheHitDropPercentage(currentHit, currentInput, previousHit, previousI
         return 0;
     }
     return Number((Math.max(0, (previousRate - currentRate) / previousRate * 100)).toFixed(2));
+}
+
+function maxSharePercentage(values) {
+    const positive = values.map(Number).filter((value) => Number.isFinite(value) && value > 0);
+    const total = positive.reduce((sum, value) => sum + value, 0);
+    if (total <= 0) {
+        return 0;
+    }
+    return Number((Math.max(...positive) / total * 100).toFixed(2));
 }
 
 // ==================== 通知器 ====================
@@ -284,6 +296,43 @@ async function checkCacheHitDrop(rule, now) {
     );
 }
 
+async function checkLargeRequest(rule, now) {
+    const periodHours = parseFloat(rule.period) || 1;
+    const startTime = now - periodHours * 3600;
+    const where = {
+        createdAt: { gte: startTime },
+        type: 2
+    };
+    if (rule.type === 'channel') {
+        where.channelId = Number(rule.target);
+    } else if (rule.type === 'model') {
+        where.modelName = rule.target;
+    }
+
+    const logs = await prisma.log.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+        select: { promptTokens: true, completionTokens: true, other: true }
+    });
+    return logs.reduce((max, log) => Math.max(max, metricsFromLog(log).throughputTokens), 0);
+}
+
+async function checkMultiKeyImbalance(rule, now) {
+    if (rule.type !== 'channel' || !rule.target) {
+        return 0;
+    }
+    const periodHours = parseFloat(rule.period) || 1;
+    const rows = await db.allAsync(
+        `SELECT key_index, SUM(tokens) as tokens
+         FROM key_stats
+         WHERE channel_id = ? AND hour >= ? AND hour < ?
+         GROUP BY key_index`,
+        [Number(rule.target), now - periodHours * 3600, now]
+    );
+    return maxSharePercentage(rows.map((row) => row.tokens));
+}
+
 // ==================== 记录告警历史 ====================
 async function recordAlertHistory(alertId, alertName, value, threshold, message, actionTaken) {
     try {
@@ -393,6 +442,18 @@ async function checkAlerts() {
                     message = `缓存命中率下降 ${currentValue.toFixed(1)}% 超过阈值 ${rule.threshold}%`;
                     break;
 
+                case ALERT_TYPES.LARGE_REQUEST:
+                    currentValue = await checkLargeRequest(rule, now);
+                    triggered = currentValue > rule.threshold;
+                    message = `单请求吞吐 Token ${currentValue.toLocaleString()} 超过阈值 ${rule.threshold.toLocaleString()}`;
+                    break;
+
+                case ALERT_TYPES.MULTI_KEY_IMBALANCE:
+                    currentValue = await checkMultiKeyImbalance(rule, now);
+                    triggered = currentValue > rule.threshold;
+                    message = `多 Key 最大 Token 占比 ${currentValue.toFixed(1)}% 超过阈值 ${rule.threshold}%`;
+                    break;
+
                 default:
                     // 兼容旧版本的 token_usage 类型
                     currentValue = await checkTokenUsage(rule, now);
@@ -480,5 +541,6 @@ module.exports = {
     ALERT_TYPES,
     disableChannel,
     percentageChange,
-    cacheHitDropPercentage
+    cacheHitDropPercentage,
+    maxSharePercentage
 };
