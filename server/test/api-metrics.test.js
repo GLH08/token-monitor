@@ -15,8 +15,8 @@ const { aggregateTokenUsage } = require('../routes/tokens');
 const { mapChannelUsage, mapChannelKeyUsage } = require('../routes/channels');
 const { parseUsageFilters } = require('../request');
 const { percentile, summarizePercentiles } = require('../performanceMetrics');
-const { summarizeLogLatencies } = require('../routes/stats');
-const { percentageChange, cacheHitDropPercentage, maxSharePercentage, resolveAlertPeriod } = require('../alerter');
+const { summarizeLogLatencies, mapSummaryMetrics } = require('../routes/stats');
+const { percentageChange, cacheHitDropPercentage, maxSharePercentage, resolveAlertPeriod, resolveAlertStatsWindow } = require('../alerter');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
@@ -100,9 +100,24 @@ test('mapTotals includes cost_usd and derived metrics', () => {
     assert.equal(t.throughput_tokens, 100);
 });
 
+test('summary mapping preserves output tokens in throughput metrics', () => {
+    const mapped = mapSummaryMetrics({
+        prompt_tokens: 80,
+        completion_tokens: 20,
+        total_input_tokens: 100,
+        tokens: 100,
+        total_requests: 1,
+        use_time_sum_sec: 10
+    });
+    assert.equal(mapped.extended.throughput_total, 120);
+    assert.equal(mapped.extended.throughput_tokens, 120);
+    assert.equal(mapped.extended.tps, 12);
+});
+
 test('token breakdown ordering uses throughput tokens', () => {
     assert.match(buildMetricOrder('tokens'), /total_input_tokens/);
     assert.match(buildMetricOrder('tokens'), /completion_tokens/);
+    assert.match(buildMetricOrder('tokens'), /CASE WHEN total_input_tokens > 0 THEN total_input_tokens/);
 });
 
 test('usage filters default to tokens', () => {
@@ -188,6 +203,15 @@ test('mapChannelKeyUsage exposes throughput token totals', () => {
     });
 });
 
+test('mapChannelKeyUsage preserves row-level throughput from mixed backfill buckets', () => {
+    assert.equal(mapChannelKeyUsage({
+        prompt_tokens: 80,
+        completion_tokens: 20,
+        total_input_tokens: 100,
+        throughput_total: 170
+    }).throughput_total, 170);
+});
+
 test('summarizePercentiles returns interpolated latency percentiles', () => {
     assert.equal(percentile([10, 20, 30, 40], 0.5), 25);
     assert.deepEqual(summarizePercentiles([10, 20, 30, 40]), {
@@ -228,6 +252,10 @@ test('alert periods support natural-day windows', () => {
     expectedStart.setHours(0, 0, 0, 0);
     assert.equal(period.startTime, Math.floor(expectedStart.getTime() / 1000));
     assert.equal(period.durationSeconds, now - period.startTime);
+    assert.equal(
+        resolveAlertStatsWindow({ period: '1' }, now).endTime,
+        (Math.floor(now / 3600) + 1) * 3600
+    );
 });
 
 // --- per-user breakdown: token_id -> user regroup (no usage_stats schema change) ---

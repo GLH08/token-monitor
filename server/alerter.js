@@ -47,9 +47,11 @@ function resolveAlertPeriod(rule = {}, now, defaultHours = 1) {
 
 function resolveAlertStatsWindow(rule, now, defaultHours = 1) {
     const period = resolveAlertPeriod(rule, now, defaultHours);
-    const endTime = Math.floor(now / 3600) * 3600;
-    const currentStart = Math.floor(period.startTime / 3600) * 3600;
-    const durationSeconds = Math.max(3600, Math.floor(period.durationSeconds / 3600) * 3600);
+    const currentHour = Math.floor(now / 3600) * 3600;
+    const endTime = currentHour + 3600;
+    const durationHours = Math.max(1, Math.ceil(period.durationSeconds / 3600));
+    const durationSeconds = durationHours * 3600;
+    const currentStart = currentHour - (durationHours - 1) * 3600;
     return { currentStart, endTime, previousStart: currentStart - durationSeconds };
 }
 
@@ -556,5 +558,6 @@ module.exports = {
     percentageChange,
     cacheHitDropPercentage,
     maxSharePercentage,
-    resolveAlertPeriod
+    resolveAlertPeriod,
+    resolveAlertStatsWindow
 };

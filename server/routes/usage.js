@@ -38,8 +38,7 @@ const DERIVED_METRICS = new Set(['cache_hit_ratio', 'success_rate', 'avg_latency
 
 function buildMetricOrder(metric) {
     if (metric === 'tokens') {
-        return `CASE WHEN SUM(total_input_tokens) > 0 THEN SUM(total_input_tokens)
-                ELSE SUM(prompt_tokens) END + SUM(completion_tokens)`;
+        return 'SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens)';
     }
     return `SUM(${METRIC_COLUMNS[metric] || METRIC_COLUMNS.tokens})`;
 }
@@ -61,7 +60,8 @@ const METRIC_SUM_SQL = `
     SUM(first_token_ms_sum) as first_token_ms_sum,
     SUM(first_token_count) as first_token_count,
     SUM(use_time_sum_sec) as use_time_sum_sec,
-    SUM(total_input_tokens) as total_input_tokens
+    SUM(total_input_tokens) as total_input_tokens,
+    SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as throughput_total
 `;
 
 // Columns summed when regrouping token_id rows into a user (per-user dimension).
@@ -69,7 +69,7 @@ const SUM_COLUMNS = [
     'prompt_tokens', 'completion_tokens', 'cache_hit_tokens', 'tokens',
     'requests', 'quota', 'errors',
     'cache_creation_tokens', 'image_tokens', 'audio_tokens', 'success_count',
-    'first_token_ms_sum', 'first_token_count', 'use_time_sum_sec', 'total_input_tokens'
+    'first_token_ms_sum', 'first_token_count', 'use_time_sum_sec', 'total_input_tokens', 'throughput_total'
 ];
 
 function buildUsageWhere(filters) {
@@ -116,7 +116,9 @@ function mapTotals(row = {}) {
     const cacheHitTokens = row.cache_hit_tokens || 0;
     const cacheCreationTokens = row.cache_creation_tokens || 0;
     const netInputTokens = Math.max(0, totalInputTokens - cacheHitTokens - cacheCreationTokens);
-    const throughputTotal = totalInputTokens + completionTokens;
+    const throughputTotal = row.throughput_total !== undefined && row.throughput_total !== null
+        ? Number(row.throughput_total) || 0
+        : totalInputTokens + completionTokens;
     return {
         tokens: row.tokens || 0,
         prompt_tokens: promptTokens,

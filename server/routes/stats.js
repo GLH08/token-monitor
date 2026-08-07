@@ -50,6 +50,35 @@ function withTokenMetrics(row = {}) {
     return mapStatsTotals(row);
 }
 
+function mapSummaryMetrics(row = {}) {
+    const tokenMetrics = withTokenMetrics({
+        prompt_tokens: row.prompt_tokens,
+        completion_tokens: row.completion_tokens,
+        cache_hit_tokens: row.cache_hit_tokens,
+        cache_creation_tokens: row.cache_creation_tokens,
+        total_input_tokens: row.total_input_tokens,
+        throughput_total: row.throughput_total,
+        tokens: row.tokens
+    });
+    const extended = mapExtendedMetrics({
+        prompt_tokens: row.prompt_tokens,
+        completion_tokens: row.completion_tokens,
+        cache_hit_tokens: row.cache_hit_tokens,
+        tokens: row.tokens,
+        throughput_total: row.throughput_total,
+        requests: row.total_requests,
+        errors: row.total_errors,
+        use_time_sum_sec: row.use_time_sum_sec,
+        first_token_ms_sum: row.first_token_ms_sum,
+        first_token_count: row.first_token_count,
+        cache_creation_tokens: row.cache_creation_tokens,
+        image_tokens: row.image_tokens,
+        audio_tokens: row.audio_tokens,
+        total_input_tokens: row.total_input_tokens
+    });
+    return { tokenMetrics, extended };
+}
+
 router.get('/stats', async (req, res) => {
     const { channel_id, model_name } = req.query;
     const timeRange = parseTimeRange(req.query);
@@ -97,29 +126,7 @@ router.get('/summary', async (req, res) => {
 
     try {
         const row = await db.getAsync(query, params);
-        const tokenMetrics = withTokenMetrics({
-            prompt_tokens: row?.prompt_tokens,
-            completion_tokens: row?.completion_tokens,
-            cache_hit_tokens: row?.cache_hit_tokens,
-            cache_creation_tokens: row?.cache_creation_tokens,
-            total_input_tokens: row?.total_input_tokens,
-            tokens: row?.tokens
-        });
-
-        const extended = mapExtendedMetrics({
-            prompt_tokens: row?.prompt_tokens,
-            cache_hit_tokens: row?.cache_hit_tokens,
-            tokens: row?.tokens,
-            requests: row?.total_requests,
-            errors: row?.total_errors,
-            use_time_sum_sec: row?.use_time_sum_sec,
-            first_token_ms_sum: row?.first_token_ms_sum,
-            first_token_count: row?.first_token_count,
-            cache_creation_tokens: row?.cache_creation_tokens,
-            image_tokens: row?.image_tokens,
-            audio_tokens: row?.audio_tokens,
-            total_input_tokens: row?.total_input_tokens
-        });
+        const { tokenMetrics, extended } = mapSummaryMetrics(row || {});
 
         // Trailing-60s RPM/TPM from live logs (like new-api SumUsedQuota).
         // Isolated so a Prisma hiccup never fails the whole summary.
@@ -516,3 +523,4 @@ router.get('/dashboard/model-distribution', async (req, res) => {
 
 module.exports = router;
 module.exports.summarizeLogLatencies = summarizeLogLatencies;
+module.exports.mapSummaryMetrics = mapSummaryMetrics;

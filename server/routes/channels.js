@@ -15,7 +15,9 @@ function mapChannelUsage(row = {}) {
     const totalInputTokens = Number(row.total_input_tokens) > 0
         ? Number(row.total_input_tokens)
         : promptTokens;
-    const throughputTotal = totalInputTokens + completionTokens;
+    const throughputTotal = row.throughput_total !== undefined && row.throughput_total !== null
+        ? Number(row.throughput_total) || 0
+        : totalInputTokens + completionTokens;
     return {
         tokens: Number(row.tokens) || promptTokens + completionTokens,
         prompt_tokens: promptTokens,
@@ -36,7 +38,9 @@ function mapChannelKeyUsage(row = {}) {
     const totalInputTokens = Number(row.total_input_tokens) > 0
         ? Number(row.total_input_tokens)
         : promptTokens;
-    const throughputTotal = totalInputTokens + completionTokens;
+    const throughputTotal = row.throughput_total !== undefined && row.throughput_total !== null
+        ? Number(row.throughput_total) || 0
+        : totalInputTokens + completionTokens;
     return {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
@@ -84,7 +88,8 @@ router.get('/overview', async (req, res) => {
                     SUM(completion_tokens) as completion_tokens,
                     SUM(cache_hit_tokens) as cache_read_tokens,
                     SUM(cache_creation_tokens) as cache_creation_tokens,
-                    SUM(total_input_tokens) as total_input_tokens
+                    SUM(total_input_tokens) as total_input_tokens,
+                    SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as throughput_total
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY channel_id`,
             [timeRange.startTs, timeRange.endTs]
@@ -188,7 +193,8 @@ router.get('/:id/keys', async (req, res) => {
                     SUM(use_time_sum_sec) as use_time_sum_sec,
                     SUM(success_count) as success_count,
                     SUM(total_input_tokens) as total_input_tokens,
-                    SUM(cache_hit_tokens) as cache_hit_tokens
+                    SUM(cache_hit_tokens) as cache_hit_tokens,
+                    SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as throughput_total
              FROM key_stats
              WHERE channel_id = ? AND hour >= ? AND hour <= ?
              GROUP BY key_index`,

@@ -315,7 +315,9 @@ function mapStatsTotals(row = {}) {
         ? Number(row.total_input_tokens)
         : promptTokens;
     const netInputTokens = Math.max(0, totalInputTokens - cacheHitTokens - cacheCreationTokens);
-    const throughputTotal = totalInputTokens + completionTokens;
+    const throughputTotal = row.throughput_total !== undefined && row.throughput_total !== null
+        ? Number(row.throughput_total) || 0
+        : totalInputTokens + completionTokens;
 
     return {
         prompt_tokens: promptTokens,
@@ -351,7 +353,9 @@ function mapExtendedMetrics(row = {}) {
     const totalInputTokens = Number(row.total_input_tokens) > 0
         ? Number(row.total_input_tokens)
         : (row.prompt_tokens || 0);
-    const throughputTotal = totalInputTokens + completionTokens;
+    const throughputTotal = row.throughput_total !== undefined && row.throughput_total !== null
+        ? Number(row.throughput_total) || 0
+        : totalInputTokens + completionTokens;
 
     return {
         cache_creation_tokens: row.cache_creation_tokens || 0,
@@ -372,7 +376,8 @@ const STATS_TOKEN_SUM_SQL = `
     SUM(prompt_tokens) as prompt_tokens,
     SUM(completion_tokens) as completion_tokens,
     SUM(cache_hit_tokens) as cache_hit_tokens,
-    SUM(tokens) as tokens
+    SUM(tokens) as tokens,
+    SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as throughput_total
 `;
 
 module.exports = {
