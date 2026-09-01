@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { createToken, getAuthConfig, isAuthEnabled, verifyPassword, verifyToken } = require('../auth');
+const { requirePasswordLogin, sendValidationError } = require('../request');
 const { createRateLimiter } = require('../rateLimiter');
 
 // The dashboard has a single shared password; without throttling it can be
