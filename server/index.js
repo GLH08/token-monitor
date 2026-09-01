@@ -7,8 +7,9 @@ const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
 const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill, stepTotalInputBackfill, stepKeyStatsBackfill } = require('./syncer');
-const { checkAlerts } = require('./alerter');
+const { checkAlerts, maybeSendDailyDigest, maybeCheckSyncHealth } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
+const { createJobGuard } = require('./jobGuard');
 const db = require('./db');
 
 const app = express();
@@ -32,11 +33,19 @@ const syncMetrics = {
 // 实时统计数据
 let realtimeStats = { qps: 0, tps: 0, activeChannels: 0 };
 
+// Interval handles for the graceful-shutdown path (populated on listen).
+const scheduledJobs = [];
+
+// Previous realtime sample. QPS/TPS used to be hour-total ÷ seconds-since-
+// hour-start, which produced a large artificial spike in the first seconds
+// of every hour; deltas between consecutive 5s samples give a true
+// instantaneous rate instead.
+let lastRealtimeSample = { hour: null, requests: 0, tokens: 0, at: 0 };
+
 async function updateRealtimeStats() {
     try {
         const now = Math.floor(Date.now() / 1000);
         const currentHour = Math.floor(now / 3600) * 3600;
-        const secondsElapsed = Math.max(1, Math.min(3600, now - currentHour));
 
         // Query the local stats table for the current hour bucket. This avoids
         // hitting the Prisma source DB every 5 seconds; the stats table lags
@@ -53,9 +62,28 @@ async function updateRealtimeStats() {
         const tokens = row?.tokens || 0;
         const channels = row?.channels || 0;
 
+        let qps;
+        let tps;
+        const prev = lastRealtimeSample;
+        if (prev.hour === currentHour && now > prev.at) {
+            const dt = Math.max(1, now - prev.at);
+            // Clamped at zero: a rebuild or cleanup can drop the bucket totals.
+            const dReq = Math.max(0, requests - prev.requests);
+            const dTok = Math.max(0, tokens - prev.tokens);
+            qps = dReq / dt;
+            tps = dTok / dt;
+        } else {
+            // First sample after startup or a new hour: 60s-floor smoothed
+            // rate so the card never shows a boundary spike.
+            const secondsElapsed = Math.max(60, Math.min(3600, now - currentHour));
+            qps = requests / secondsElapsed;
+            tps = tokens / secondsElapsed;
+        }
+        lastRealtimeSample = { hour: currentHour, requests, tokens, at: now };
+
         realtimeStats = {
-            qps: Number((requests / secondsElapsed).toFixed(2)),
-            tps: Number((tokens / secondsElapsed).toFixed(2)),
+            qps: Number(qps.toFixed(2)),
+            tps: Number(tps.toFixed(2)),
             activeChannels: channels
         };
     } catch (error) {
@@ -101,9 +129,23 @@ app.use('/api/model-status', require('./routes/modelStatus'));
 app.use('/api/admin', require('./routes/admin'));
 
 // ==================== 健康检查 & 系统信息 ====================
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
+// /health doubles as the Docker healthcheck probe: it verifies the SQLite
+// handle actually works (a container with a broken data dir previously
+// reported ok forever) and returns 503 when it fails. External new-api DB
+// outages surface in sync.lastError without failing the probe, since the sync
+// loop self-heals when the DB returns.
+app.get('/health', async (req, res) => {
+    let sqliteOk = true;
+    try {
+        await db.getAsync('SELECT 1');
+    } catch (error) {
+        console.error('[HEALTH] SQLite probe failed:', error.message);
+        sqliteOk = false;
+    }
+
+    res.status(sqliteOk ? 200 : 503).json({
+        status: sqliteOk ? 'ok' : 'error',
+        checks: { sqlite: sqliteOk ? 'ok' : 'fail' },
         uptime: process.uptime(),
         startedAt: syncMetrics.startedAt,
         sync: {
@@ -146,10 +188,54 @@ if (process.env.NODE_ENV === 'production') {
 
 // ==================== WebSocket 服务 ====================
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+// noServer + manual upgrade handling so WS connections can be authenticated
+// the same way as the REST API (Bearer token via ?token= query param).
+const wss = new WebSocket.Server({ noServer: true });
+
+// Heartbeat: ws auto-replies pong; peers that miss a ping are half-open
+// (sleep/resume, NAT timeout) and get terminated so clients reconnect and
+// the "live" indicator cannot keep glowing on a dead socket.
+const WS_PING_INTERVAL_MS = 30000;
+const wsHeartbeat = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            ws.terminate();
+            return;
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, WS_PING_INTERVAL_MS);
+wss.on('close', () => clearInterval(wsHeartbeat));
+
+server.on('upgrade', (req, socket, head) => {
+    let authorized = !isAuthEnabled();
+    if (!authorized) {
+        try {
+            const url = new URL(req.url || '/', 'http://localhost');
+            if (url.pathname !== '/ws') {
+                socket.destroy();
+                return;
+            }
+            const token = url.searchParams.get('token');
+            const verification = token ? verifyToken(token) : { valid: false };
+            authorized = verification.valid;
+        } catch {
+            authorized = false;
+        }
+    }
+    if (!authorized) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+});
 
 wss.on('connection', (ws) => {
     console.log('[WS] Client connected');
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     ws.send(JSON.stringify({ type: 'realtime', data: realtimeStats }));
 
     ws.on('close', () => console.log('[WS] Client disconnected'));
@@ -195,24 +281,18 @@ function broadcastKeyStatusChanges(changes) {
 server.listen(PORT, () => {
     console.log(`[SERVER] Running on port ${PORT}`);
 
-    // Startup backfills run STRICTLY SEQUENTIALLY before the sync loop starts:
-    //   1. ensureUsageStatsBackfill (may DELETE+rebuild usage_stats rows)
-    //   2. captureExtendedBackfillBoundary (persist end_id from last_synced_id)
-    //   3. stepExtendedMetricsBackfill (first batch, id <= end_id)
-    // Serializing them prevents the usage_stats rebuild from racing the extended
-    // backfill's UPDATEs on the same rows, and capturing end_id before syncLogs
-    // prevents a later re-capture from overlapping freshly-synced logs and
-    // double-counting extended metrics. The sync loop awaits this chain before
-    // its first syncLogs; if any step fails it is logged and the chain resolves
-    // so syncing still proceeds (the backfill simply skips on a missing end_id).
-    const backfillReady = ensureUsageStatsBackfill()
-        .then((result) => {
-            if (!result.skipped) {
-                console.log(`[SYNC] Backfilled usage_stats with ${result.processedLogs} logs`);
-            }
-        })
-        .catch((error) => console.error('[SYNC] usage_stats backfill error:', error))
-        .then(() => captureExtendedBackfillBoundary())
+    // Startup backfills run STRICTLY SEQUENTIALLY before the sync loop starts.
+    // The ADDITIVE backfills go first (they only UPDATE existing rows and skip
+    // rather than double-count when their boundary is missing); the usage_stats
+    // REBUILD goes LAST: it DELETEs and replays 30 days through
+    // updateAggregates, which already populates every extended column, so it is
+    // authoritative over anything the additive backfills wrote into
+    // usage_stats. Running the rebuild first let the extended/total-input
+    // backfills add those columns a second time on upgrades where the rebuild's
+    // meta keys were missing. Capturing end_id before the first syncLogs still
+    // prevents a later re-capture from overlapping freshly synced logs. If any
+    // step fails it is logged and the chain resolves so syncing still proceeds.
+    const backfillReady = captureExtendedBackfillBoundary()
         .catch((error) => console.error('[SYNC] extended boundary capture error:', error))
         .then(() => stepExtendedMetricsBackfill())
         .then((result) => {
@@ -234,12 +314,25 @@ server.listen(PORT, () => {
                 console.log(`[SYNC] Key-stats backfill step: ${result.processedLogs} logs (completed=${!!result.completed})`);
             }
         })
-        .catch((error) => console.error('[SYNC] key-stats backfill error:', error));
+        .catch((error) => console.error('[SYNC] key-stats backfill error:', error))
+        .then(() => ensureUsageStatsBackfill())
+        .then((result) => {
+            if (!result.skipped) {
+                console.log(`[SYNC] Backfilled usage_stats with ${result.processedLogs} logs`);
+            }
+        })
+        .catch((error) => console.error('[SYNC] usage_stats backfill error:', error));
 
-    // 日志同步 (每5秒) + 延迟监控
-    setInterval(async () => {
-        const start = Date.now();
-        try {
+    // Scheduled jobs each get an in-flight guard (createJobGuard): setInterval
+    // fires regardless of whether the previous async run finished, and
+    // overlapping syncLogs runs re-read the same watermark and double-count
+    // aggregates. Handles are kept for the shutdown path.
+
+    // 日志同步 (每5秒) + 延迟监控 + 续跑回填
+    const runSyncJob = createJobGuard();
+    scheduledJobs.push(setInterval(() => {
+        runSyncJob(async () => {
+            const start = Date.now();
             await backfillReady;
             const result = await syncLogs();
             syncMetrics.lastSyncTime = new Date().toISOString();
@@ -260,34 +353,86 @@ server.listen(PORT, () => {
             await stepKeyStatsBackfill().catch((error) => {
                 console.error('[SYNC] Key-stats backfill step error:', error);
             });
-        } catch (e) {
+        }).catch((e) => {
             syncMetrics.lastError = e.message;
-        }
-    }, 5000);
+        });
+    }, 5000));
 
-    // 告警检查 (每60秒)
-    setInterval(async () => {
-        await checkAlerts();
-    }, 60000);
+    // 告警检查 (每60秒) + 同步管道健康自检
+    const runAlertJob = createJobGuard();
+    scheduledJobs.push(setInterval(() => {
+        runAlertJob(async () => {
+            await checkAlerts();
+            await maybeCheckSyncHealth(getSyncState());
+        }).catch((error) => {
+            console.error('[ALERT-CHECK] Job error:', error.message);
+        });
+    }, 60000));
+
+    // 每日用量摘要：每15分钟检查一次，自然日切换后发送前一日报告
+    // （发送状态记录在 meta，重复触发不会重发）
+    const runDailyDigest = () => maybeSendDailyDigest().catch((error) => {
+        console.error('[DIGEST] Daily digest error:', error.message);
+    });
+    runDailyDigest();
+    scheduledJobs.push(setInterval(runDailyDigest, 15 * 60 * 1000));
 
     // 实时统计更新 (每5秒)
-    setInterval(async () => {
+    scheduledJobs.push(setInterval(async () => {
         await updateRealtimeStats();
         broadcastRealtimeStats();
-    }, 5000);
+    }, 5000));
 
     // 渠道快照 (每小时)
-    setInterval(async () => {
-        const snapResult = await syncChannelSnapshots();
-        broadcastKeyStatusChanges(snapResult.keyStatusChanges);
-    }, 3600000);
+    const runSnapshotJob = createJobGuard();
+    scheduledJobs.push(setInterval(() => {
+        runSnapshotJob(async () => {
+            const snapResult = await syncChannelSnapshots();
+            broadcastKeyStatusChanges(snapResult.keyStatusChanges);
+        }).catch((error) => {
+            console.error('[SNAPSHOT] Job error:', error.message);
+        });
+    }, 3600000));
 
     // 清理旧数据 (每天)
-    setInterval(async () => {
-        await cleanOldData();
-    }, 86400000);
+    const runCleanupJob = createJobGuard();
+    scheduledJobs.push(setInterval(() => {
+        runCleanupJob(() => cleanOldData()).catch((error) => {
+            console.error('[CLEANUP] Job error:', error.message);
+        });
+    }, 86400000));
 
-    // 启动时立即执行一次
+    // 启动时立即执行一次（走各自的 job guard 防止与 setInterval 重叠）
     updateRealtimeStats();
-    syncChannelSnapshots().then(r => broadcastKeyStatusChanges(r.keyStatusChanges));
+    const startupSnapshotGuard = createJobGuard();
+    startupSnapshotGuard(async () => {
+        const snapResult = await syncChannelSnapshots();
+        broadcastKeyStatusChanges(snapResult.keyStatusChanges);
+    }).catch((error) => {
+        console.error("[SNAPSHOT] Startup job error:", error.message);
+    });
 });
+
+// ==================== 优雅停机 ====================
+// docker stop sends SIGTERM: without handling it, node exits immediately and
+// can cut the 5s sync batch or the hourly snapshot write midway. Stop
+// accepting connections, drop WS clients, clear intervals, then close SQLite.
+let shuttingDown = false;
+function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[SERVER] ${signal} received, shutting down...`);
+
+    scheduledJobs.forEach(clearInterval);
+    wss.clients.forEach((client) => client.terminate());
+    server.close(() => {
+        db.close((err) => {
+            if (err) console.error('[SERVER] DB close error:', err.message);
+            process.exit(0);
+        });
+    });
+    // Fallback so an in-flight job or keep-alive socket cannot hang shutdown.
+    setTimeout(() => process.exit(0), 10000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

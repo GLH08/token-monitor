@@ -40,6 +40,9 @@ const STATS_EXTENDED_SUM_SQL = `
     SUM(cache_creation_tokens) as cache_creation_tokens,
     SUM(image_tokens) as image_tokens,
     SUM(audio_tokens) as audio_tokens,
+    SUM(reasoning_requests) as reasoning_requests,
+    SUM(tool_calls) as tool_calls,
+    SUM(tool_quota) as tool_quota,
     SUM(success_count) as success_count,
     SUM(first_token_ms_sum) as first_token_ms_sum,
     SUM(first_token_count) as first_token_count,
@@ -79,12 +82,22 @@ function mapSummaryMetrics(row = {}) {
     return { tokenMetrics, extended };
 }
 
+const MAX_STATS_RANGE_SECONDS = 90 * 24 * 3600;
+
 router.get('/stats', async (req, res) => {
     const { channel_id, model_name } = req.query;
     const timeRange = parseTimeRange(req.query);
     const channelId = parseOptionalId(channel_id);
 
-    if (!timeRange || (channel_id && channelId === null)) {
+    // Legacy, unconsumed endpoint: previously both bounds were optional and
+    // there was no LIMIT, so a bare request serialized the entire stats table.
+    if (!timeRange || timeRange.startTs === null || timeRange.endTs === null) {
+        return sendValidationError(res, 'start_ts and end_ts are required');
+    }
+    if (timeRange.endTs - timeRange.startTs > MAX_STATS_RANGE_SECONDS) {
+        return sendValidationError(res, 'Time range is too large');
+    }
+    if (channel_id && channelId === null) {
         return sendValidationError(res);
     }
 
@@ -96,7 +109,7 @@ router.get('/stats', async (req, res) => {
     if (model_name) { query += " AND model_name = ?"; params.push(model_name); }
     if (timeRange.startTs !== null) { query += " AND hour >= ?"; params.push(timeRange.startTs); }
     if (timeRange.endTs !== null) { query += " AND hour <= ?"; params.push(timeRange.endTs); }
-    query += " ORDER BY hour ASC";
+    query += " ORDER BY hour ASC LIMIT 10000";
 
     try {
         const rows = await db.allAsync(query, params);
@@ -140,7 +153,7 @@ router.get('/summary', async (req, res) => {
                 _sum: { promptTokens: true, completionTokens: true }
             });
             rpm = live._count.id || 0;
-            tpm = (live._sum.promptTokens || 0) + (live._sum.completionTokens || 0);
+            tpm = Number(live._sum.promptTokens || 0) + Number(live._sum.completionTokens || 0);
         } catch (e) { /* rpm/tpm stay 0 */ }
 
         res.json({
@@ -409,7 +422,7 @@ router.get('/analysis/latency', async (req, res) => {
         );
 
         res.json({
-            slow_requests: slowRequests.map(r => ({ ...r, createdAt: r.createdAt.toString() })),
+            slow_requests: slowRequests.map(r => ({ ...r, id: Number(r.id), createdAt: r.createdAt.toString() })),
             percentiles: {
                 ...summarizeLogLatencies(latencySamples),
                 sample_count: latencySamples.length,

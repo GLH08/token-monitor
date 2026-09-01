@@ -96,8 +96,8 @@ const DistributionPie = ({
                             formatter: (p: { name: string }) => truncateName(p.name, 16),
                         },
                     },
-                    data: capped.map((d) => ({ ...d, // keep full name for tooltip
-                    })),
+                    data: capped,  // data: capped keeps full name; legend formatter truncates for display only
+
                 },
             ],
         }),

@@ -1,11 +1,24 @@
 const express = require('express');
 const router = express.Router();
-const { createToken, getAuthConfig, isAuthEnabled, verifyPassword } = require('../auth');
-const { requirePasswordLogin, sendValidationError } = require('../request');
+const { createToken, getAuthConfig, isAuthEnabled, verifyPassword, verifyToken } = require('../auth');
+const { createRateLimiter } = require('../rateLimiter');
+
+// The dashboard has a single shared password; without throttling it can be
+// guessed at unlimited rate (timingSafeEqual only prevents timing leaks, not
+// online guessing). 10 attempts / 15 min / client IP. Note: behind a reverse
+// proxy set app.set('trust proxy', ...) so req.ip is the real client.
+const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
 
 router.post('/login', (req, res) => {
     if (!isAuthEnabled()) {
         return res.json({ success: true, data: { token: '', expires_in: 0, auth_disabled: true } });
+    }
+
+    const clientKey = req.ip || req.socket?.remoteAddress || 'unknown';
+    const attempt = loginLimiter.take(clientKey);
+    if (!attempt.allowed) {
+        const minutes = Math.max(1, Math.ceil(attempt.retryAfterSec / 60));
+        return res.status(429).json({ error: `尝试过于频繁，请 ${minutes} 分钟后再试` });
     }
 
     const payload = requirePasswordLogin(req.body);
@@ -39,7 +52,6 @@ router.get('/config', (req, res) => {
     });
 });
 
-const { verifyToken } = require('../auth');
 
 const authMiddleware = (req, res, next) => {
     if (!isAuthEnabled()) return next();

@@ -123,9 +123,9 @@ function parseImageTokens(parsed) {
         || getNestedNumber(parsed, ['usage', 'image_output']);
 }
 
-// Audio tokens come from two shapes: the dedicated audio/wss paths write
-// `audio_input`/`audio_output`, while the text path with separate audio
-// pricing writes `audio_input_token_count` (input only, no output).
+// Audio tokens come from two shapes: new-api historically wrote `audio_input`/
+// `audio_output` for dedicated audio/wss paths (kept here for backward compatibility);
+// current versions only write `audio_input_token_count` (input only, no output).
 function parseAudioTokens(parsed) {
     if (!parsed) {
         return { input: 0, output: 0 };
@@ -138,20 +138,41 @@ function parseAudioTokens(parsed) {
     return { input, output };
 }
 
-// Re-derive the tool-call surcharge quota from the price+count written to
-// `other`. Prices are per-1000-calls for web/file search and per-call for
-// image generation (service/text_quota.go:423-445, tool_billing.go). The
-// surcharge is already included in logs.quota; this is a breakdown metric.
+// Re-derive the tool-call surcharge quota from the data written to `other`.
+// The surcharge is already included in logs.quota; this is a breakdown metric.
+// Current new-api writes other.tool_surcharges as [{name, count, price}] and
+// bills EVERY tool as price x count / 1000 x group_ratio x QuotaPerUnit
+// (service/text_quota.go:28-39, 181-187) - price is always per-1000-calls.
+// Older versions wrote flat web_search_call_count/web_search_price/... fields
+// with a per-call image_generation special case; keep that path so historical
+// logs (and the extended-metrics backfill over them) still parse.
 function parseToolCalls(parsed) {
     if (!parsed) {
         return { toolCalls: 0, toolQuota: 0 };
     }
 
-    let toolCalls = 0;
-    let toolQuota = 0;
     const groupRatio = getNestedNumber(parsed, ['group_ratio'])
         || getNestedNumber(parsed, ['usage', 'group_ratio'])
         || 1;
+
+    if (Array.isArray(parsed.tool_surcharges) && parsed.tool_surcharges.length > 0) {
+        let toolCalls = 0;
+        let rawQuota = 0;
+        parsed.tool_surcharges.forEach((item) => {
+            const count = Number(item && item.count) || 0;
+            const price = Number(item && item.price) || 0;
+            if (count <= 0 || price <= 0) {
+                return;
+            }
+            toolCalls += count;
+            rawQuota += price * count / 1000 * groupRatio * QUOTA_PER_UNIT;
+        });
+        // Mirror new-api: accumulate the decimal product across items, round once.
+        return { toolCalls, toolQuota: Math.round(rawQuota) };
+    }
+
+    let toolCalls = 0;
+    let toolQuota = 0;
 
     const webSearchCount = getNestedNumber(parsed, ['web_search_call_count']);
     if (webSearchCount > 0) {
@@ -265,7 +286,30 @@ function metricsFromLog(log) {
     const inputTokensTotalRaw = parsed
         ? (getNestedNumber(parsed, ['input_tokens_total']) || getNestedNumber(parsed, ['usage', 'input_tokens_total']))
         : 0;
-    const isClaudeSemantic = !!(parsed && (parsed.usage_semantic === 'anthropic' || parsed.claude === true));
+    // Legacy Claude-derived usage: an OpenAI-shaped response converted from a
+    // Claude upstream can carry the 5m/1h cache-creation split without any
+    // usage_semantic tag. new-api still bills those with Anthropic semantics
+    // (prompt EXCLUDES cache; text_quota.go isLegacyClaudeDerivedOpenAIUsage,
+    // 308-312), so mirror that or cache ratios would exceed 100%. The split
+    // keys are only written from Claude cache fields, so their presence is a
+    // reliable signal; input_tokens_total (checked above) takes precedence.
+    // The 5m/1h split is only a Claude signature when no normalized
+    // cache_write_tokens total is present; otherwise new-api writes
+    // cache_write_tokens as the authoritative summed field and the split
+    // keys can leak through from non-Anthropic paths that still split
+    // them for tooling, which would otherwise double-count cache_creation
+    // against prompt.
+    const hasNormalizedCacheWrite = parsed
+        && (getNestedNumber(parsed, ['cache_write_tokens']) > 0
+            || getNestedNumber(parsed, ['cacheWriteTokens']) > 0
+            || getNestedNumber(parsed, ['usage', 'cache_write_tokens']) > 0
+            || getNestedNumber(parsed, ['usage', 'cacheWriteTokens']) > 0);
+    const hasClaudeCacheSplit = parsed && !hasNormalizedCacheWrite
+        && (getNestedNumber(parsed, ['cache_creation_tokens_5m']) > 0
+            || getNestedNumber(parsed, ['cache_creation_tokens_1h']) > 0);
+    const isClaudeSemantic = !!(parsed && (parsed.usage_semantic === 'anthropic'
+        || parsed.claude === true
+        || hasClaudeCacheSplit));
     const totalInputTokens = inputTokensTotalRaw > 0
         ? inputTokensTotalRaw
         : (isClaudeSemantic ? promptTokens + cacheHitTokens + cacheCreationTokens : promptTokens);
@@ -361,6 +405,9 @@ function mapExtendedMetrics(row = {}) {
         cache_creation_tokens: row.cache_creation_tokens || 0,
         image_tokens: row.image_tokens || 0,
         audio_tokens: row.audio_tokens || 0,
+        reasoning_requests: row.reasoning_requests || 0,
+        tool_calls: row.tool_calls || 0,
+        tool_quota: row.tool_quota || 0,
         total_input_tokens: totalInputTokens,
         throughput_total: throughputTotal,
         throughput_tokens: throughputTotal,

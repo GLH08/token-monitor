@@ -34,6 +34,12 @@ export interface ExtendedMetrics {
     cache_creation_tokens: number;
     image_tokens: number;
     audio_tokens: number;
+    /** Number of requests whose other.reasoning_effort was non-empty (Anthropic / OpenAI reasoning models). */
+    reasoning_requests: number;
+    /** Total tool-call events (web/file/image-generation) accumulated from other.tool_surcharges. */
+    tool_calls: number;
+    /** Quota attributable to tool-call surcharges (recomputed from price*count*group_ratio*QUOTA_PER_UNIT/1000). */
+    tool_quota: number;
     /** Total input tokens incl. cache (prompt_tokens + cache for Claude-semantic). */
     total_input_tokens: number;
     /** Input tokens excluding cache read and cache creation tokens. */
@@ -384,6 +390,39 @@ export interface ChannelKeysResponse {
     multi_key_polling_index?: number;
     time_range?: { start_ts: number; end_ts: number };
     keys: ChannelKeyDetail[];
+}
+
+export interface ChannelBalancePoint {
+    snapshot_time: number;
+    balance: number | null;
+    used_quota: number | null;
+}
+
+export interface ChannelBalanceResponse {
+    channel_id: number;
+    channel_name: string | null;
+    days: number;
+    current_balance: number | null;
+    balance_updated_at: number | null;
+    history: ChannelBalancePoint[];
+}
+
+export interface ErrorBreakdownCode {
+    error_type: string;
+    error_code: string;
+    status_code: string;
+    count: number;
+    models: string[];
+}
+
+export interface ErrorBreakdownResponse {
+    time_range: { startTs: number; endTs: number };
+    total: number;
+    sample_count: number;
+    sampled: boolean;
+    by_code: ErrorBreakdownCode[];
+    by_channel: { channel_id: number; channel_name: string; count: number }[];
+    top_messages: { message: string; count: number }[];
 }
 
 export interface ChannelPerformanceRow extends StatsTotalsWithMetrics {
