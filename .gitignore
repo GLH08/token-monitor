@@ -36,3 +36,17 @@ terminals/
 .Codex/
 .claude/worktrees/
 .worktrees/
+
+# Build output
+web/dist/
+
+# Codex-managed repo-level agent rules (auto-copied from ~/.codex/AGENTS.md;
+# project-specific guidance belongs in docs/ or .github/ instead).
+AGENTS.md
+
+# Build output
+web/dist/
+
+# Codex-managed repo-level agent rules (auto-copied from ~/.codex/AGENTS.md;
+# project-specific guidance belongs in docs/ or .github/ instead).
+AGENTS.md
