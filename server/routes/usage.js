@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
-const { mapExtendedMetrics } = require('../tokenMetrics');
+const { mapExtendedMetrics, mapBillingTypeSummary, BILLING_TYPE_SUM_SQL } = require('../tokenMetrics');
 const { parseUsageFilters, parseTimeRange, parsePositiveInt, sendValidationError } = require('../request');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
@@ -16,7 +16,8 @@ const DIMENSION_COLUMNS = {
 };
 // 'user' is a derived dimension: usage_stats has no user_id column, so per-user
 // breakdown aggregates by token_id then regroups by user in JS (token->user is
-// many-to-one). No usage_stats schema change (keeps C2 additive).
+// many-to-one). usage_stats retains the same dimensions and now also carries
+// additive billing-type counters.
 
 const METRIC_COLUMNS = {
     cost: 'quota',
@@ -61,6 +62,7 @@ const METRIC_SUM_SQL = `
     SUM(first_token_count) as first_token_count,
     SUM(use_time_sum_sec) as use_time_sum_sec,
     SUM(total_input_tokens) as total_input_tokens,
+    ${BILLING_TYPE_SUM_SQL},
     SUM(CASE WHEN total_input_tokens > 0 THEN total_input_tokens ELSE prompt_tokens END + completion_tokens) as throughput_total
 `;
 
@@ -69,7 +71,8 @@ const SUM_COLUMNS = [
     'prompt_tokens', 'completion_tokens', 'cache_hit_tokens', 'tokens',
     'requests', 'quota', 'errors',
     'cache_creation_tokens', 'image_tokens', 'audio_tokens', 'success_count',
-    'first_token_ms_sum', 'first_token_count', 'use_time_sum_sec', 'total_input_tokens', 'throughput_total'
+    'first_token_ms_sum', 'first_token_count', 'use_time_sum_sec', 'total_input_tokens', 'throughput_total',
+    'fixed_price_requests', 'fixed_price_quota', 'token_billing_requests', 'token_billing_quota',
 ];
 
 function buildUsageWhere(filters) {
@@ -133,7 +136,8 @@ function mapTotals(row = {}) {
         cost: quota / QUOTA_PER_UNIT,
         cost_usd: quota / QUOTA_PER_UNIT,
         errors: row.errors || 0,
-        ...mapExtendedMetrics(row)
+        ...mapExtendedMetrics(row),
+        ...mapBillingTypeSummary(row)
     };
 }
 
@@ -196,7 +200,8 @@ function zeroTotals() {
         success_rate: 0,
         avg_latency_ms: 0,
         avg_ttft_ms: 0,
-        tps: 0
+        tps: 0,
+        ...mapBillingTypeSummary()
     };
 }
 

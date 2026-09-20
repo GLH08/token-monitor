@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
 const { parseTimeRange, sendValidationError } = require('../request');
-const { parseChannelInfo } = require('../channelInfo');
+const { parseChannelInfo, splitChannelKeys } = require('../channelInfo');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
 
@@ -172,8 +172,10 @@ router.get('/:id/keys', async (req, res) => {
             });
         }
 
-        // Split the key field by newline to get individual keys (new-api convention)
-        const rawKeys = (channel.key || '').split('\n').map(k => k.trim()).filter(Boolean);
+        // Split the key field into individual keys. new-api Channel.GetKeys()
+        // supports both the JSON-array form (Vertex AI etc.) and the newline
+        // convention; splitChannelKeys mirrors that behavior.
+        const rawKeys = splitChannelKeys(channel.key || '');
         const multiKeySize = info.multi_key_size || rawKeys.length;
 
         // Build per-key status maps from channel_info

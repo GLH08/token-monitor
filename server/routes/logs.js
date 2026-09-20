@@ -174,6 +174,7 @@ router.get('/logs', async (req, res) => {
                     tps: useTimeSec > 0 ? Number((m.tokens / useTimeSec).toFixed(2)) : 0,
                     ratios: m.ratios,
                     billing_source: m.billingSource,
+                    billing_info: m.billingInfo,
                     is_multi_key: m.isMultiKey,
                     multi_key_index: m.multiKeyIndex,
                     is_stream: l.isStream
@@ -228,6 +229,11 @@ router.get('/errors', async (req, res) => {
         res.json({
             logs: logs.map(l => {
                 const requestId = extractRequestId(l.requestId, l.content, l.other);
+                const errorMetadata = metricsFromLog(l).errorMetadata || {
+                    error_type: null,
+                    error_code: null,
+                    status_code: null
+                };
                 return {
                     id: l.id,
                     created_at: Number(l.createdAt),
@@ -240,6 +246,9 @@ router.get('/errors', async (req, res) => {
                     requestId,
                     content: l.content,
                     other: l.other,
+                    error_type: errorMetadata.error_type,
+                    error_code: errorMetadata.error_code,
+                    status_code: errorMetadata.status_code,
                     use_time: l.useTime
                 };
             }),

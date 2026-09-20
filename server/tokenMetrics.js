@@ -237,6 +237,24 @@ function parseMultiKeyIndex(parsed) {
     return Number.isFinite(Number(idx)) ? Number(idx) : -1;
 }
 
+// new-api service/relay_error.go writes error metadata as top-level public
+// fields on type-5 logs: error_type, error_code, status_code. Expose them for
+// the /logs/errors view; legacy logs simply report nulls.
+function parseErrorMetadata(parsed) {
+    if (!parsed) {
+        return null;
+    }
+    const pick = (key) => {
+        const value = parsed[key];
+        return value !== undefined && value !== null ? value : null;
+    };
+    return {
+        error_type: pick('error_type'),
+        error_code: pick('error_code'),
+        status_code: pick('status_code')
+    };
+}
+
 function parseBillingSource(parsed) {
     if (!parsed) {
         return null;
@@ -245,6 +263,57 @@ function parseBillingSource(parsed) {
         ? parsed.billing_source
         : (parsed.usage && parsed.usage.billing_source);
     return typeof raw === 'string' && raw ? raw : null;
+}
+
+// new-api service/log_info_generate.go InjectTieredBillingInfo serializes
+// tiered expression billing metadata: billing_mode == 'tiered_expr', the billing
+// unit ('token' | 'request'), a fixed price (per request), the matched tier key,
+// and a per-dimension token breakdown (p/c/cr/cc/cc1h/img/img_cr/img_o/ai/ao).
+// Legacy logs simply reset to null; the nullable fields tolerate both.
+function parseBillingInfo(parsed) {
+    if (!parsed || parsed.billing_mode !== 'tiered_expr') {
+        return null;
+    }
+    const pick = (key, fallback = null) => {
+        const value = parsed[key];
+        return value !== undefined && value !== null ? value : fallback;
+    };
+    const stringPick = (key) => {
+        const value = pick(key);
+        return typeof value === 'string' && value ? value : null;
+    };
+
+    const rawBillingUnit = stringPick('billing_unit');
+    const billingUnit = rawBillingUnit === 'token' || rawBillingUnit === 'request'
+        ? rawBillingUnit
+        : null;
+    const billingTokens = pick('billing_tokens');
+    const tokenDim = (key) => (billingTokens && typeof billingTokens === 'object'
+        ? (Number.isFinite(Number(billingTokens[key])) ? Number(billingTokens[key]) : 0)
+        : 0);
+    const fixedPriceRaw = pick('fixed_price');
+    const imageCountRaw = pick('image_count');
+
+    return {
+        billing_mode: 'tiered_expr',
+        billing_unit: billingUnit,
+        fixed_price: fixedPriceRaw !== null && Number.isFinite(Number(fixedPriceRaw)) ? Number(fixedPriceRaw) : null,
+        matched_tier: stringPick('matched_tier'),
+        image_count: imageCountRaw !== null && Number.isFinite(Number(imageCountRaw)) ? Number(imageCountRaw) : null,
+        billing_tokens: billingTokens && typeof billingTokens === 'object' && !Array.isArray(billingTokens) ? {
+            p: tokenDim('p'),
+            c: tokenDim('c'),
+            len: tokenDim('len'),
+            cr: tokenDim('cr'),
+            cc: tokenDim('cc'),
+            cc1h: tokenDim('cc1h'),
+            img: tokenDim('img'),
+            img_cr: tokenDim('img_cr'),
+            img_o: tokenDim('img_o'),
+            ai: tokenDim('ai'),
+            ao: tokenDim('ao')
+        } : null
+    };
 }
 
 function parseRatios(parsed) {
@@ -275,6 +344,18 @@ function metricsFromLog(log) {
     const reasoning = parseReasoning(parsed);
     const frtMs = parseFrtMs(parsed);
     const billingSource = parseBillingSource(parsed);
+    const errorMetadata = parseErrorMetadata(parsed);
+    const billingInfo = parseBillingInfo(parsed);
+    // billingInfo 归并：request 定单 => fixed_price；token 计费含任何
+    // tiered_expr 形态 => token；无计费元数据 => null。聚合层按此分类统计。
+    // 注意：new-api 异步任务计费日志（task_billing.go 仅写 billing_mode 与
+    // matched_tier，不含 billing_unit，见 InjectTieredBillingInfo 的调用方）
+    // 无法可靠区分按次/按 token 计费，这里有意归为 null：它们不会进入
+    // 两种计费统计，避免污染 tiered 计费聚合。
+    const billingType = !billingInfo || billingInfo.billing_mode !== 'tiered_expr'
+        ? null
+        : (billingInfo.billing_unit === 'request' ? 'fixed_price' :
+            (billingInfo.billing_unit === 'token' ? 'token' : null));
     const ratios = parseRatios(parsed);
     const isMultiKey = parseIsMultiKey(parsed);
     const multiKeyIndex = parseMultiKeyIndex(parsed);
@@ -339,6 +420,9 @@ function metricsFromLog(log) {
         frtMs,
         useTimeSec: log.useTime || 0,
         billingSource,
+        errorMetadata,
+        billingInfo,
+        billingType,
         ratios,
         totalInputTokens,
         isMultiKey,
@@ -419,6 +503,33 @@ function mapExtendedMetrics(row = {}) {
     };
 }
 
+const BILLING_TYPE_SUM_SQL = `
+    SUM(fixed_price_requests) as fixed_price_requests,
+    SUM(fixed_price_quota) as fixed_price_quota,
+    SUM(token_billing_requests) as token_billing_requests,
+    SUM(token_billing_quota) as token_billing_quota`;
+
+// Billing-type aggregate ratios are computed by request count.
+// Missing aggregate columns default to zero during startup migration.
+function mapBillingTypeSummary(row = {}) {
+    const fpReq = Number(row.fixed_price_requests) || 0;
+    const fpQuota = Number(row.fixed_price_quota) || 0;
+    const toReq = Number(row.token_billing_requests) || 0;
+    const toQuota = Number(row.token_billing_quota) || 0;
+    const total = fpReq + toReq;
+    return {
+        fixed_price_requests: fpReq,
+        fixed_price_quota: fpQuota,
+        token_billing_requests: toReq,
+        token_billing_quota: toQuota,
+        billing_type_stats: {
+            fixed_price_ratio: total > 0 ? Number((fpReq / total).toFixed(4)) : 0,
+            token_billing_ratio: total > 0 ? Number((toReq / total).toFixed(4)) : 0,
+            total_tiered_requests: total
+        }
+    };
+}
+
 const STATS_TOKEN_SUM_SQL = `
     SUM(prompt_tokens) as prompt_tokens,
     SUM(completion_tokens) as completion_tokens,
@@ -438,9 +549,13 @@ module.exports = {
     parseReasoning,
     parseFrtMs,
     parseBillingSource,
+    parseErrorMetadata,
+    parseBillingInfo,
     parseRatios,
     metricsFromLog,
     mapStatsTotals,
     mapExtendedMetrics,
+    mapBillingTypeSummary,
+    BILLING_TYPE_SUM_SQL,
     STATS_TOKEN_SUM_SQL
 };

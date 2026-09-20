@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
-const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill, stepTotalInputBackfill, stepKeyStatsBackfill } = require('./syncer');
+const { syncLogs, syncChannelSnapshots, cleanOldData, getSyncState, prisma, ensureUsageStatsBackfill, captureExtendedBackfillBoundary, stepExtendedMetricsBackfill, stepTotalInputBackfill, stepKeyStatsBackfill, captureBillingTypeBackfillBoundary, stepBillingTypeBackfill } = require('./syncer');
 const { checkAlerts, maybeSendDailyDigest, maybeCheckSyncHealth } = require('./alerter');
 const { isAuthEnabled, verifyToken } = require('./auth');
 const { createJobGuard } = require('./jobGuard');
@@ -315,6 +315,21 @@ server.listen(PORT, () => {
             }
         })
         .catch((error) => console.error('[SYNC] key-stats backfill error:', error))
+        .then(() => captureBillingTypeBackfillBoundary())
+        .then((result) => {
+            if (result && result.captured) {
+                console.log('[SYNC] Captured billing-type backfill boundary at id=' + result.endId);
+            }
+        })
+        .catch((error) => console.error('[SYNC] billing-type boundary capture error:', error))
+        .then(() => stepBillingTypeBackfill())
+        .then((result) => {
+            if (result && !result.skipped) {
+                console.log('[SYNC] Billing-type backfill step: ' + result.processedLogs +
+                    ' logs (completed=' + !!result.completed + ')');
+            }
+        })
+        .catch((error) => console.error('[SYNC] billing-type backfill error:', error))
         .then(() => ensureUsageStatsBackfill())
         .then((result) => {
             if (!result.skipped) {
@@ -352,6 +367,9 @@ server.listen(PORT, () => {
             });
             await stepKeyStatsBackfill().catch((error) => {
                 console.error('[SYNC] Key-stats backfill step error:', error);
+            });
+            await stepBillingTypeBackfill().catch((error) => {
+                console.error('[SYNC] Billing-type backfill step error:', error);
             });
         }).catch((e) => {
             syncMetrics.lastError = e.message;

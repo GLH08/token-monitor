@@ -95,6 +95,7 @@ model Token {
   allowIps           String?   @map("allow_ips") @default("")
   group              String?   @default("")
   crossGroupRetry    Boolean?  @map("cross_group_retry") @default(false)
+  autoGroups         String?   @map("auto_groups") @db.Text
   deletedAt          DateTime? @map("deleted_at")
 
   @@map("tokens")
@@ -144,6 +145,7 @@ model User {
   status      Int       @default(1)
   quota       Int       @default(0)
   usedQuota   Int       @map("used_quota") @default(0)
+  requestCount Int      @map("request_count") @default(0)
   group       String?   @default("default")
   deletedAt   DateTime? @map("deleted_at")
 

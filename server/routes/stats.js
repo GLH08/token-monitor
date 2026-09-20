@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { prisma } = require('../syncer');
-const { mapStatsTotals, mapExtendedMetrics, metricsFromLog, STATS_TOKEN_SUM_SQL } = require('../tokenMetrics');
+const { mapStatsTotals, mapExtendedMetrics, mapBillingTypeSummary, metricsFromLog, BILLING_TYPE_SUM_SQL, STATS_TOKEN_SUM_SQL } = require('../tokenMetrics');
 const { summarizePercentiles } = require('../performanceMetrics');
 const {
     parseTimeRange,
@@ -82,6 +82,23 @@ function mapSummaryMetrics(row = {}) {
     return { tokenMetrics, extended };
 }
 
+// Billing-type sums from per-model rows (snake_case, matching BILLING_TYPE_SUM_SQL).
+// Kept consistent with the values already returned per model row.
+function mapModelAnalysisSummary(models) {
+    const merged = models.reduce((acc, m) => ({
+        fixed_price_requests: acc.fixed_price_requests + (m.fixed_price_requests || 0),
+        fixed_price_quota: acc.fixed_price_quota + (m.fixed_price_quota || 0),
+        token_billing_requests: acc.token_billing_requests + (m.token_billing_requests || 0),
+        token_billing_quota: acc.token_billing_quota + (m.token_billing_quota || 0)
+    }), {
+        fixed_price_requests: 0,
+        fixed_price_quota: 0,
+        token_billing_requests: 0,
+        token_billing_quota: 0
+    });
+    return { ...mapBillingTypeSummary(merged), ...merged };
+}
+
 const MAX_STATS_RANGE_SECONDS = 90 * 24 * 3600;
 
 router.get('/stats', async (req, res) => {
@@ -102,7 +119,9 @@ router.get('/stats', async (req, res) => {
     }
 
     let query = `SELECT channel_id, model_name, hour, prompt_tokens, completion_tokens, cache_hit_tokens,
-                 tokens, request_count, quota, error_count, avg_latency FROM stats WHERE 1=1`;
+                 tokens, request_count, quota, error_count, avg_latency,
+                 fixed_price_requests, fixed_price_quota, token_billing_requests, token_billing_quota
+                 FROM stats WHERE 1=1`;
     const params = [];
 
     if (channelId !== null) { query += " AND channel_id = ?"; params.push(channelId); }
@@ -115,7 +134,8 @@ router.get('/stats', async (req, res) => {
         const rows = await db.allAsync(query, params);
         res.json(rows.map((row) => ({
             ...row,
-            ...withTokenMetrics(row)
+             ...withTokenMetrics(row),
+             ...mapBillingTypeSummary(row)
         })));
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -132,6 +152,7 @@ router.get('/summary', async (req, res) => {
                  SUM(request_count) as total_requests,
                  SUM(quota) as total_quota, SUM(error_count) as total_errors,
                  ${STATS_EXTENDED_SUM_SQL},
+                 ${BILLING_TYPE_SUM_SQL},
                  COUNT(DISTINCT model_name) as active_models FROM stats WHERE 1=1`;
     const params = [];
     if (timeRange.startTs !== null) { query += " AND hour >= ?"; params.push(timeRange.startTs); }
@@ -170,6 +191,7 @@ router.get('/summary', async (req, res) => {
             total_cost: (row?.total_quota || 0) / QUOTA_PER_UNIT,
             cost_usd: (row?.total_quota || 0) / QUOTA_PER_UNIT,
             ...extended,
+            ...mapBillingTypeSummary(row || {}),
             rpm,
             tpm
         });
@@ -187,7 +209,8 @@ router.get('/analysis', async (req, res) => {
 
     const groupBy = type === 'channel' ? 'channel_id' : 'model_name';
     let query = `SELECT ${groupBy} as name, ${STATS_TOKEN_SUM_SQL},
-                 SUM(quota) as quota, SUM(request_count) as requests, SUM(error_count) as errors
+                 SUM(quota) as quota, SUM(request_count) as requests, SUM(error_count) as errors,
+                 ${BILLING_TYPE_SUM_SQL}
                  FROM stats WHERE 1=1`;
     const params = [];
     if (timeRange.startTs !== null) { query += " AND hour >= ?"; params.push(timeRange.startTs); }
@@ -204,7 +227,8 @@ router.get('/analysis', async (req, res) => {
                 ...tokenMetrics,
                 quota: row.quota,
                 requests: row.requests,
-                errors: row.errors
+                errors: row.errors,
+                ...mapBillingTypeSummary(row)
             };
         }));
     } catch (err) {
@@ -223,7 +247,8 @@ router.get('/channels/performance', async (req, res) => {
             `SELECT channel_id, ${STATS_TOKEN_SUM_SQL}, SUM(request_count) as requests,
              SUM(quota) as quota, SUM(error_count) as errors,
              SUM(avg_latency * request_count) / SUM(request_count) as avg_latency,
-             ${STATS_EXTENDED_SUM_SQL}
+             ${STATS_EXTENDED_SUM_SQL},
+             ${BILLING_TYPE_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY channel_id ORDER BY requests DESC`,
             [timeRange.startTs, timeRange.endTs]
@@ -251,7 +276,8 @@ router.get('/channels/performance', async (req, res) => {
                 errorRate: r.requests > 0 ? (r.errors / r.requests * 100).toFixed(2) : 0,
                 error_rate: r.requests > 0 ? Number((r.errors / r.requests).toFixed(4)) : 0,
                 avgLatency: Math.round(r.avg_latency || 0),
-                ...mapExtendedMetrics(r)
+                ...mapExtendedMetrics(r),
+                ...mapBillingTypeSummary(r)
             };
         });
 
@@ -273,7 +299,8 @@ router.get('/models/analysis', async (req, res) => {
         let query = `SELECT model_name, ${STATS_TOKEN_SUM_SQL}, SUM(request_count) as requests,
              SUM(quota) as quota, SUM(error_count) as errors,
              SUM(avg_latency * request_count) / SUM(request_count) as avg_latency,
-             ${STATS_EXTENDED_SUM_SQL}
+             ${STATS_EXTENDED_SUM_SQL},
+             ${BILLING_TYPE_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?`;
         const params = [timeRange.startTs, timeRange.endTs];
 
@@ -302,7 +329,8 @@ router.get('/models/analysis', async (req, res) => {
                 errorRate: r.requests > 0 ? (r.errors / r.requests * 100).toFixed(2) : 0,
                 error_rate: r.requests > 0 ? Number((r.errors / r.requests).toFixed(4)) : 0,
                 avgLatency: Math.round(r.avg_latency || 0),
-                ...mapExtendedMetrics(r)
+                ...mapExtendedMetrics(r),
+                ...mapBillingTypeSummary(r)
             };
         });
 
@@ -339,6 +367,7 @@ router.get('/models/analysis', async (req, res) => {
             throughputTotal: summaryTokens.throughput_total,
             totalCost: models.reduce((sum, m) => sum + m.cost, 0),
             total_cost_usd: models.reduce((sum, m) => sum + m.cost, 0),
+            ...mapModelAnalysisSummary(models),
             cache_hit_ratio: summaryTokens.total_input_tokens > 0
                 ? Number((summaryTokens.cache_hit_tokens / summaryTokens.total_input_tokens).toFixed(4))
                 : 0,
@@ -415,7 +444,8 @@ router.get('/analysis/latency', async (req, res) => {
             `SELECT hour, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
              SUM(quota) as quota, SUM(error_count) as errors,
              SUM(avg_latency * request_count) / SUM(request_count) as avg_latency,
-             ${STATS_EXTENDED_SUM_SQL}
+              ${STATS_EXTENDED_SUM_SQL},
+              ${BILLING_TYPE_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY hour ORDER BY hour ASC`,
             [timeRange.startTs, timeRange.endTs]
@@ -440,7 +470,8 @@ router.get('/analysis/latency', async (req, res) => {
                     quota: r.quota,
                     errors: r.errors,
                     avg_latency: Math.round(r.avg_latency || 0),
-                    ...mapExtendedMetrics(r)
+                    ...mapExtendedMetrics(r),
+                    ...mapBillingTypeSummary(r)
                 };
             })
         });
@@ -463,7 +494,8 @@ router.get('/dashboard/hourly-trend', async (req, res) => {
             `SELECT hour, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
              SUM(quota) as quota, SUM(error_count) as errors,
              SUM(avg_latency * request_count) / NULLIF(SUM(request_count), 0) as avg_latency,
-             ${STATS_EXTENDED_SUM_SQL}
+              ${STATS_EXTENDED_SUM_SQL},
+              ${BILLING_TYPE_SUM_SQL}
              FROM stats WHERE hour >= ?
              GROUP BY hour ORDER BY hour ASC`,
             [startTime]
@@ -486,7 +518,8 @@ router.get('/dashboard/hourly-trend', async (req, res) => {
                 cost_usd: (data?.quota || 0) / QUOTA_PER_UNIT,
                 errors: data?.errors || 0,
                 avg_latency: Math.round(data?.avg_latency || 0),
-                ...mapExtendedMetrics(data || {})
+                ...mapExtendedMetrics(data || {}),
+                ...mapBillingTypeSummary(data || {})
             });
         }
 
@@ -506,7 +539,8 @@ router.get('/dashboard/model-distribution', async (req, res) => {
         const rows = await db.allAsync(
             `SELECT model_name, SUM(request_count) as requests, ${STATS_TOKEN_SUM_SQL},
              SUM(quota) as quota, SUM(error_count) as errors,
-             ${STATS_EXTENDED_SUM_SQL}
+              ${STATS_EXTENDED_SUM_SQL},
+              ${BILLING_TYPE_SUM_SQL}
              FROM stats WHERE hour >= ? AND hour <= ?
              GROUP BY model_name ORDER BY requests DESC LIMIT 10`,
             [timeRange.startTs, timeRange.endTs]
@@ -524,7 +558,8 @@ router.get('/dashboard/model-distribution', async (req, res) => {
                 cost_usd: r.quota / QUOTA_PER_UNIT,
                 errors: r.errors || 0,
                 percentage: total > 0 ? parseFloat((r.requests / total * 100).toFixed(2)) : 0,
-                ...mapExtendedMetrics(r)
+                ...mapExtendedMetrics(r),
+                ...mapBillingTypeSummary(r)
             };
         });
 
@@ -537,3 +572,4 @@ router.get('/dashboard/model-distribution', async (req, res) => {
 module.exports = router;
 module.exports.summarizeLogLatencies = summarizeLogLatencies;
 module.exports.mapSummaryMetrics = mapSummaryMetrics;
+module.exports.mapModelAnalysisSummary = mapModelAnalysisSummary;

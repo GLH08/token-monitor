@@ -40,6 +40,11 @@ function initDB() {
             first_token_ms_sum INTEGER DEFAULT 0,
             first_token_count INTEGER DEFAULT 0,
             use_time_sum_sec INTEGER DEFAULT 0,
+            total_input_tokens INTEGER DEFAULT 0,
+            fixed_price_requests INTEGER DEFAULT 0,
+            fixed_price_quota INTEGER DEFAULT 0,
+            token_billing_requests INTEGER DEFAULT 0,
+            token_billing_quota INTEGER DEFAULT 0,
             PRIMARY KEY (channel_id, model_name, hour)
         )`);
 
@@ -73,6 +78,11 @@ function initDB() {
             first_token_ms_sum INTEGER DEFAULT 0,
             first_token_count INTEGER DEFAULT 0,
             use_time_sum_sec INTEGER DEFAULT 0,
+            total_input_tokens INTEGER DEFAULT 0,
+            fixed_price_requests INTEGER DEFAULT 0,
+            fixed_price_quota INTEGER DEFAULT 0,
+            token_billing_requests INTEGER DEFAULT 0,
+            token_billing_quota INTEGER DEFAULT 0,
             PRIMARY KEY (hour, user_group, channel_id, model_name, token_id)
         )`);
 
@@ -89,6 +99,7 @@ function initDB() {
                     db.run("ALTER TABLE usage_stats ADD COLUMN cache_hit_tokens INTEGER DEFAULT 0");
                 }
                 addExtendedMetricColumns('usage_stats', columnNames);
+                addBillingMetricColumns('usage_stats', columnNames);
             }
         });
 
@@ -175,6 +186,10 @@ function initDB() {
             first_token_count INTEGER DEFAULT 0,
             use_time_sum_sec INTEGER DEFAULT 0,
             total_input_tokens INTEGER DEFAULT 0,
+            fixed_price_requests INTEGER DEFAULT 0,
+            fixed_price_quota INTEGER DEFAULT 0,
+            token_billing_requests INTEGER DEFAULT 0,
+            token_billing_quota INTEGER DEFAULT 0,
             PRIMARY KEY (channel_id, key_index, model_name, hour)
         )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_key_stats_channel_hour ON key_stats(channel_id, hour)`);
@@ -184,6 +199,7 @@ function initDB() {
             if (!err && columns) {
                 const keyColumnNames = columns.map(col => col.name);
                 addExtendedMetricColumns('key_stats', keyColumnNames);
+                addBillingMetricColumns('key_stats', keyColumnNames);
                 if (!keyColumnNames.includes('avg_latency')) {
                     db.run("ALTER TABLE key_stats ADD COLUMN avg_latency INTEGER DEFAULT 0");
                 }
@@ -236,6 +252,7 @@ function initDB() {
                     db.run("ALTER TABLE stats ADD COLUMN avg_latency INTEGER DEFAULT 0");
                 }
                 addExtendedMetricColumns('stats', columnNames);
+                addBillingMetricColumns('stats', columnNames);
             }
         });
     });
@@ -257,12 +274,27 @@ const EXTENDED_METRIC_COLUMNS = [
     'total_input_tokens'
 ];
 
+const BILLING_METRIC_COLUMNS = [
+    'fixed_price_requests',
+    'fixed_price_quota',
+    'token_billing_requests',
+    'token_billing_quota'
+];
+
 // Idempotent ALTER TABLE guards so already-deployed SQLite files upgrade in
 // place (see database-guidelines: PRAGMA table_info + ALTER TABLE ADD COLUMN).
 function addExtendedMetricColumns(table, columnNames) {
     EXTENDED_METRIC_COLUMNS.forEach(col => {
         if (!columnNames.includes(col)) {
             db.run(`ALTER TABLE ${table} ADD COLUMN ${col} INTEGER DEFAULT 0`);
+        }
+    });
+}
+
+function addBillingMetricColumns(table, columnNames) {
+    BILLING_METRIC_COLUMNS.forEach(col => {
+        if (!columnNames.includes(col)) {
+            db.run("ALTER TABLE " + table + " ADD COLUMN " + col + " INTEGER DEFAULT 0");
         }
     });
 }

@@ -61,6 +61,9 @@ test('metricsFromLog computes net input and throughput totals', () => {
         frtMs: 0,
         useTimeSec: 0,
         billingSource: null,
+        errorMetadata: { error_type: null, error_code: null, status_code: null },
+        billingInfo: null,
+        billingType: null,
         ratios: { model: 0, completion: 0, group: 0, cache: 0, userGroup: 0, modelPrice: 0 },
         totalInputTokens: 100,
         isMultiKey: false,
@@ -228,4 +231,82 @@ test('updateStats aggregates extended metrics from logs.other into stats', async
         use_time_sum_sec: 16,
         total_input_tokens: 1100
     });
+});
+
+test('writeBillingTypeBatch still advances the checkpoint for batches without tiered logs', async () => {
+    await db.runAsync("DELETE FROM meta WHERE key IN ('billing_type_backfill_progress_id_v1','billing_type_backfill_done_v1')");
+
+    const { writeBillingTypeBatch } = require('../syncer');
+
+    // Progress MUST advance even when no tiered log exists in the batch:
+    // otherwise a history consisting solely of plain logs would spin forever
+    // behind the same watermark instead of completing.
+    await writeBillingTypeBatch(
+        [{ type: 2, createdAt: 1710000000, channelId: 9, modelName: 'plain', other: '{}' }],
+        { progressId: 55, endId: 55, completed: true }
+    );
+
+    const progress = await db.getAsync(
+        "SELECT value FROM meta WHERE key = 'billing_type_backfill_progress_id_v1'"
+    );
+    const done = await db.getAsync(
+        "SELECT value FROM meta WHERE key = 'billing_type_backfill_done_v1'"
+    );
+    assert.equal(progress.value, '55');
+    assert.ok(done.value);
+});
+
+test('updateStats aggregates tiered billing categories without changing totals', async () => {
+    const fixedPriceOther = JSON.stringify({
+        billing_mode: 'tiered_expr',
+        billing_unit: 'request',
+        fixed_price: 0.01,
+        matched_tier: 'request-tier'
+    });
+    const tokenBillingOther = JSON.stringify({
+        billing_mode: 'tiered_expr',
+        billing_unit: 'token',
+        matched_tier: 'token-tier',
+        billing_tokens: { p: 100, c: 20 }
+    });
+
+    await updateStats([
+        {
+            createdAt: 1710003700, channelId: 8, modelName: 'tiered', tokenId: 2, group: 'default',
+            promptTokens: 0, completionTokens: 0, quota: 600, useTime: 1, type: 2,
+            other: fixedPriceOther
+        },
+        {
+            createdAt: 1710003800, channelId: 8, modelName: 'tiered', tokenId: 2, group: 'default',
+            promptTokens: 100, completionTokens: 20, quota: 900, useTime: 1, type: 2,
+            other: tokenBillingOther
+        },
+        {
+            createdAt: 1710003900, channelId: 8, modelName: 'tiered', tokenId: 2, group: 'default',
+            promptTokens: 10, completionTokens: 5, quota: 100, useTime: 1, type: 2,
+            other: '{}'
+        }
+    ]);
+
+    const statsRow = await db.getAsync(
+        'SELECT request_count, quota, fixed_price_requests, fixed_price_quota, ' +
+        'token_billing_requests, token_billing_quota ' +
+        "FROM stats WHERE channel_id = 8 AND model_name = 'tiered'"
+    );
+    const usageRow = await db.getAsync(
+        'SELECT request_count, quota, fixed_price_requests, fixed_price_quota, ' +
+        'token_billing_requests, token_billing_quota ' +
+        "FROM usage_stats WHERE channel_id = 8 AND model_name = 'tiered' AND token_id = 2"
+    );
+
+    const expected = {
+        request_count: 3,
+        quota: 1600,
+        fixed_price_requests: 1,
+        fixed_price_quota: 600,
+        token_billing_requests: 1,
+        token_billing_quota: 900
+    };
+    assert.deepEqual(statsRow, expected);
+    assert.deepEqual(usageRow, expected);
 });

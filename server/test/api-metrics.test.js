@@ -15,7 +15,7 @@ const { aggregateTokenUsage } = require('../routes/tokens');
 const { mapChannelUsage, mapChannelKeyUsage } = require('../routes/channels');
 const { parseUsageFilters } = require('../request');
 const { percentile, summarizePercentiles } = require('../performanceMetrics');
-const { summarizeLogLatencies, mapSummaryMetrics } = require('../routes/stats');
+const { summarizeLogLatencies, mapSummaryMetrics, mapModelAnalysisSummary } = require('../routes/stats');
 const { percentageChange, cacheHitDropPercentage, maxSharePercentage, resolveAlertPeriod, resolveAlertStatsWindow } = require('../alerter');
 
 const QUOTA_PER_UNIT = parseInt(process.env.QUOTA_PER_UNIT) || 500000;
@@ -90,7 +90,9 @@ test('mapExtendedMetrics accepts request_count/error_count aliases', () => {
 test('mapTotals includes cost_usd and derived metrics', () => {
     const t = mapTotals({
         quota: 500000, tokens: 100, prompt_tokens: 60, completion_tokens: 40, cache_hit_tokens: 20,
-        requests: 5, errors: 1, use_time_sum_sec: 10
+        requests: 5, errors: 1, use_time_sum_sec: 10,
+        fixed_price_requests: 2, fixed_price_quota: 200,
+        token_billing_requests: 3, token_billing_quota: 300
     });
     assert.equal(t.cost_usd, 1);             // 500000/QUOTA_PER_UNIT
     assert.equal(t.cost, 1);
@@ -98,6 +100,9 @@ test('mapTotals includes cost_usd and derived metrics', () => {
     assert.equal(t.success_rate, 0.8);       // 1 - 1/5
     assert.equal(t.avg_latency_ms, 2000);    // 10/5*1000
     assert.equal(t.throughput_tokens, 100);
+    assert.equal(t.fixed_price_requests, 2);
+    assert.equal(t.token_billing_quota, 300);
+    assert.equal(t.billing_type_stats.fixed_price_ratio, 0.4);
 });
 
 test('summary mapping preserves output tokens in throughput metrics', () => {
@@ -118,6 +123,24 @@ test('token breakdown ordering uses throughput tokens', () => {
     assert.match(buildMetricOrder('tokens'), /total_input_tokens/);
     assert.match(buildMetricOrder('tokens'), /completion_tokens/);
     assert.match(buildMetricOrder('tokens'), /CASE WHEN total_input_tokens > 0 THEN total_input_tokens/);
+});
+
+test('mapModelAnalysisSummary aggregates billing sums and ratios', () => {
+    const summary = mapModelAnalysisSummary([
+        { fixed_price_requests: 1, fixed_price_quota: 600 },
+        { token_billing_requests: 3, token_billing_quota: 900 }
+    ]);
+    assert.deepEqual(summary, {
+        fixed_price_requests: 1,
+        fixed_price_quota: 600,
+        token_billing_requests: 3,
+        token_billing_quota: 900,
+        billing_type_stats: {
+            fixed_price_ratio: 0.25,
+            token_billing_ratio: 0.75,
+            total_tiered_requests: 4
+        }
+    });
 });
 
 test('usage filters default to tokens', () => {

@@ -29,6 +29,43 @@ export interface Ratios {
     modelPrice: number;
 }
 
+export interface BillingTokenDimensions {
+    p: number;
+    c: number;
+    len: number;
+    cr: number;
+    cc: number;
+    cc1h: number;
+    img: number;
+    img_cr: number;
+    img_o: number;
+    ai: number;
+    ao: number;
+}
+
+/** Tiered-expression billing metadata preserved from logs.other. */
+export interface BillingInfo {
+    billing_mode: string | null;
+    billing_unit: 'token' | 'request' | null;
+    fixed_price: number | null;
+    matched_tier: string | null;
+    image_count: number | null;
+    billing_tokens: BillingTokenDimensions | null;
+}
+
+/** Aggregated tiered billing counters. Ratios are 0..1 fractions. */
+export interface BillingTypeSummary {
+    fixed_price_requests: number;
+    fixed_price_quota: number;
+    token_billing_requests: number;
+    token_billing_quota: number;
+    billing_type_stats: {
+        fixed_price_ratio: number;
+        token_billing_ratio: number;
+        total_tiered_requests: number;
+    };
+}
+
 /** The C2 extended metric block (derived from per-hour sums). */
 export interface ExtendedMetrics {
     cache_creation_tokens: number;
@@ -73,7 +110,7 @@ export interface UsageTotals {
     errors: number;
 }
 
-export type UsageTotalsWithMetrics = UsageTotals & ExtendedMetrics;
+export type UsageTotalsWithMetrics = UsageTotals & ExtendedMetrics & BillingTypeSummary;
 
 /**
  * Stats-endpoint totals: `UsageTotals` plus the `net_input_tokens` /
@@ -86,7 +123,7 @@ export interface StatsTotals extends UsageTotals {
     throughput_total: number;
 }
 
-export type StatsTotalsWithMetrics = StatsTotals & ExtendedMetrics;
+export type StatsTotalsWithMetrics = StatsTotals & ExtendedMetrics & BillingTypeSummary;
 
 /** Allowed `dimension` values for /api/usage/breakdown. `user` is derived. */
 export type UsageDimension = 'group' | 'channel' | 'model' | 'token' | 'user';
@@ -116,7 +153,7 @@ export interface TimeRangeParams {
 // /api/summary keeps its legacy `total_*` field names (design §4.1) and does NOT
 // emit the bare `tokens`/`requests`/`quota`/`cost`/`errors` aliases, so it extends
 // `ExtendedMetrics` only, not `UsageTotalsWithMetrics`.
-export interface Summary extends ExtendedMetrics {
+export interface Summary extends ExtendedMetrics, BillingTypeSummary {
     total_tokens: number;
     total_prompt_tokens: number;
     total_completion_tokens: number;
@@ -255,6 +292,8 @@ export interface LogRow {
     ratios: Ratios;
     /** 'wallet' | 'subscription' | null. */
     billing_source: string | null;
+    /** Tiered-expression billing details; null for legacy/non-tiered logs. */
+    billing_info: BillingInfo | null;
     /** Multi-key index (-1 if not multi-key). */
     multi_key_index: number;
     /** True if the log used a multi-key channel. */
@@ -293,7 +332,7 @@ export interface ModelAnalysisRow extends StatsTotalsWithMetrics {
     avgLatency: number;
 }
 
-export interface ModelAnalysisSummary {
+export interface ModelAnalysisSummary extends BillingTypeSummary {
     totalModels: number;
     totalRequests: number;
     totalErrors: number;

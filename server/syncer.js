@@ -128,6 +128,31 @@ function accumulateExtended(agg, metrics, log) {
     agg.totalInputTokens += metrics.totalInputTokens;
 }
 
+function newBillingAgg() {
+    return {
+        fixedPriceRequests: 0,
+        fixedPriceQuota: 0,
+        tokenBillingRequests: 0,
+        tokenBillingQuota: 0
+    };
+}
+
+// Tiered billing metadata is present only on successful consume logs. Keep
+// these counters separate from request_count/quota so legacy totals stay the same.
+function accumulateBilling(agg, metrics, log) {
+    if (log.type !== LOG_TYPE_CONSUME) {
+        return;
+    }
+    const quota = Number(log.quota) || 0;
+    if (metrics.billingType === 'fixed_price') {
+        agg.fixedPriceRequests += 1;
+        agg.fixedPriceQuota += quota;
+    } else if (metrics.billingType === 'token') {
+        agg.tokenBillingRequests += 1;
+        agg.tokenBillingQuota += quota;
+    }
+}
+
 async function updateAggregates(logs, { includeStats, includeUsageStats }) {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
@@ -140,9 +165,10 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     request_count, quota, error_count, avg_latency,
                     cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
                     tool_calls, tool_quota, success_count,
-                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens,
+                    fixed_price_requests, fixed_price_quota, token_billing_requests, token_billing_quota
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, model_name, hour)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -167,7 +193,11 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
                     first_token_count = first_token_count + excluded.first_token_count,
                     use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
-                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens,
+                    fixed_price_requests = fixed_price_requests + excluded.fixed_price_requests,
+                    fixed_price_quota = fixed_price_quota + excluded.fixed_price_quota,
+                    token_billing_requests = token_billing_requests + excluded.token_billing_requests,
+                    token_billing_quota = token_billing_quota + excluded.token_billing_quota
             `) : null;
 
             const usageStmt = includeUsageStats ? db.prepare(`
@@ -176,9 +206,10 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
                     cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
                     tool_calls, tool_quota, success_count,
-                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens,
+                    fixed_price_requests, fixed_price_quota, token_billing_requests, token_billing_quota
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(hour, user_group, channel_id, model_name, token_id)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -203,7 +234,11 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
                     first_token_count = first_token_count + excluded.first_token_count,
                     use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
-                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens,
+                    fixed_price_requests = fixed_price_requests + excluded.fixed_price_requests,
+                    fixed_price_quota = fixed_price_quota + excluded.fixed_price_quota,
+                    token_billing_requests = token_billing_requests + excluded.token_billing_requests,
+                    token_billing_quota = token_billing_quota + excluded.token_billing_quota
             `) : null;
 
             const statsAggregated = {};
@@ -214,9 +249,10 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
                     cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
                     tool_calls, tool_quota, success_count,
-                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens,
+                    fixed_price_requests, fixed_price_quota, token_billing_requests, token_billing_quota
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, key_index, model_name, hour)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -241,7 +277,11 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
                     first_token_count = first_token_count + excluded.first_token_count,
                     use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
-                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens,
+                    fixed_price_requests = fixed_price_requests + excluded.fixed_price_requests,
+                    fixed_price_quota = fixed_price_quota + excluded.fixed_price_quota,
+                    token_billing_requests = token_billing_requests + excluded.token_billing_requests,
+                    token_billing_quota = token_billing_quota + excluded.token_billing_quota
             `);
             const keyStatsAggregated = {};
 
@@ -278,7 +318,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             quota: 0,
                             errorCount: 0,
                             latencySum: 0,
-                            ...newExtendedAgg()
+                            ...newExtendedAgg(),
+                            ...newBillingAgg()
                         };
                     }
                     const statsAgg = statsAggregated[statsKey];
@@ -291,6 +332,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     statsAgg.errorCount += errorCount;
                     statsAgg.latencySum += latency;
                     accumulateExtended(statsAgg, metrics, log);
+                    accumulateBilling(statsAgg, metrics, log);
                 }
 
                 if (includeUsageStats) {
@@ -310,7 +352,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             quota: 0,
                             errorCount: 0,
                             latencySum: 0,
-                            ...newExtendedAgg()
+                            ...newExtendedAgg(),
+                            ...newBillingAgg()
                         };
                     }
                     const usageAgg = usageAggregated[usageKey];
@@ -323,6 +366,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     usageAgg.errorCount += errorCount;
                     usageAgg.latencySum += latency;
                     accumulateExtended(usageAgg, metrics, log);
+                    accumulateBilling(usageAgg, metrics, log);
                 // Multi-key per-key aggregation
                 if (metrics.isMultiKey && metrics.multiKeyIndex >= 0) {
                     const keyStatsKey = `${channelId}:${metrics.multiKeyIndex}:${modelName}:${hour}`;
@@ -340,7 +384,8 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                             quota: 0,
                             errorCount: 0,
                             latencySum: 0,
-                            ...newExtendedAgg()
+                            ...newExtendedAgg(),
+                            ...newBillingAgg()
                         };
                     }
                     const keyAgg = keyStatsAggregated[keyStatsKey];
@@ -353,6 +398,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                     keyAgg.errorCount += errorCount;
                     keyAgg.latencySum += latency;
                     accumulateExtended(keyAgg, metrics, log);
+                    accumulateBilling(keyAgg, metrics, log);
                 }
                 }
             });
@@ -382,7 +428,11 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.firstTokenMsSum,
                         agg.firstTokenCount,
                         agg.useTimeSumSec,
-                        agg.totalInputTokens
+                        agg.totalInputTokens,
+                        agg.fixedPriceRequests,
+                        agg.fixedPriceQuota,
+                        agg.tokenBillingRequests,
+                        agg.tokenBillingQuota
                     );
                 });
             }
@@ -414,7 +464,11 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.firstTokenMsSum,
                         agg.firstTokenCount,
                         agg.useTimeSumSec,
-                        agg.totalInputTokens
+                        agg.totalInputTokens,
+                        agg.fixedPriceRequests,
+                        agg.fixedPriceQuota,
+                        agg.tokenBillingRequests,
+                        agg.tokenBillingQuota
                     );
                 });
             }
@@ -424,6 +478,7 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
             }
             if (usageStmt) {
                 usageStmt.finalize();
+            }
             if (keyStatsStmt) {
                 Object.values(keyStatsAggregated).forEach(agg => {
                     const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
@@ -450,13 +505,16 @@ async function updateAggregates(logs, { includeStats, includeUsageStats }) {
                         agg.firstTokenMsSum,
                         agg.firstTokenCount,
                         agg.useTimeSumSec,
-                        agg.totalInputTokens
+                        agg.totalInputTokens,
+                        agg.fixedPriceRequests,
+                        agg.fixedPriceQuota,
+                        agg.tokenBillingRequests,
+                        agg.tokenBillingQuota
                     );
                 });
             }
             if (keyStatsStmt) {
                 keyStatsStmt.finalize();
-            }
             }
             db.run("COMMIT", (err) => {
                 if (err) reject(err);
@@ -1096,6 +1154,216 @@ async function stepTotalInputBackfill() {
     return { processedLogs, processedBatches, progressId, endId, completed };
 }
 
+const BILLING_TYPE_BACKFILL_END_KEY = 'billing_type_backfill_end_id_v1';
+const BILLING_TYPE_BACKFILL_PROGRESS_KEY = 'billing_type_backfill_progress_id_v1';
+const BILLING_TYPE_BACKFILL_DONE_KEY = 'billing_type_backfill_done_v1';
+
+// Update only the new billing-type columns. Existing aggregate rows are
+// already authoritative for the base/extended metrics, so this path is
+// additive and UPDATE-only to avoid creating partial historical buckets.
+// Progress checkpoints are committed atomically with the aggregate updates.
+function writeBillingTypeBatch(logs, { progressId, endId, completed }) {
+    const statsAgg = {};
+    const usageAgg = {};
+    const keyStatsAgg = {};
+    // Progress checkpoints and the done flag are committed in the same
+    // transaction as the aggregate updates, so a crash can never skip or
+    // double-count a batch.
+    const persistCheckpoint = () => {
+        db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+            [BILLING_TYPE_BACKFILL_PROGRESS_KEY, String(progressId)]);
+        if (completed) {
+            db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+                [BILLING_TYPE_BACKFILL_DONE_KEY, new Date().toISOString()]);
+        }
+    };
+
+
+    logs.forEach(log => {
+        const metrics = metricsFromLog(log);
+        if (!metrics.billingType) {
+            return;
+        }
+
+        const timestamp = Number(log.createdAt);
+        const hour = Math.floor(timestamp / 3600) * 3600;
+        const channelId = log.channelId || 0;
+        const modelName = log.modelName || '';
+        const tokenId = log.tokenId || 0;
+        const userGroup = log.group || '';
+        const statsKey = channelId + ':' + modelName + ':' + hour;
+        const usageKey = hour + ':' + userGroup + ':' + channelId + ':' + modelName + ':' + tokenId;
+
+        if (!statsAgg[statsKey]) {
+            statsAgg[statsKey] = { channelId, modelName, hour, ...newBillingAgg() };
+        }
+        accumulateBilling(statsAgg[statsKey], metrics, log);
+
+        if (!usageAgg[usageKey]) {
+            usageAgg[usageKey] = { hour, userGroup, channelId, modelName, tokenId, ...newBillingAgg() };
+        }
+        accumulateBilling(usageAgg[usageKey], metrics, log);
+
+        if (metrics.isMultiKey && metrics.multiKeyIndex >= 0) {
+            const keyStatsKey = channelId + ':' + metrics.multiKeyIndex + ':' + modelName + ':' + hour;
+            if (!keyStatsAgg[keyStatsKey]) {
+                keyStatsAgg[keyStatsKey] = {
+                    channelId,
+                    keyIndex: metrics.multiKeyIndex,
+                    modelName,
+                    hour,
+                    ...newBillingAgg()
+                };
+            }
+            accumulateBilling(keyStatsAgg[keyStatsKey], metrics, log);
+        }
+    });
+
+    if (Object.keys(statsAgg).length === 0) {
+        return new Promise((resolve, reject) => {
+            db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+                persistCheckpoint();
+                db.run('COMMIT', err => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+        });
+    }
+
+    const setClause = [
+        'fixed_price_requests = fixed_price_requests + ?',
+        'fixed_price_quota = fixed_price_quota + ?',
+        'token_billing_requests = token_billing_requests + ?',
+        'token_billing_quota = token_billing_quota + ?'
+    ].join(', ');
+
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
+
+            const statsStmt = db.prepare('UPDATE stats SET ' + setClause +
+                ' WHERE channel_id = ? AND model_name = ? AND hour = ?');
+            Object.values(statsAgg).forEach(agg => {
+                statsStmt.run(
+                    agg.fixedPriceRequests, agg.fixedPriceQuota,
+                    agg.tokenBillingRequests, agg.tokenBillingQuota,
+                    agg.channelId, agg.modelName, agg.hour
+                );
+            });
+            statsStmt.finalize();
+
+            const usageStmt = db.prepare('UPDATE usage_stats SET ' + setClause +
+                ' WHERE hour = ? AND user_group = ? AND channel_id = ? AND model_name = ? AND token_id = ?');
+            Object.values(usageAgg).forEach(agg => {
+                usageStmt.run(
+                    agg.fixedPriceRequests, agg.fixedPriceQuota,
+                    agg.tokenBillingRequests, agg.tokenBillingQuota,
+                    agg.hour, agg.userGroup, agg.channelId, agg.modelName, agg.tokenId
+                );
+            });
+            usageStmt.finalize();
+
+            const keyStatsStmt = db.prepare('UPDATE key_stats SET ' + setClause +
+                ' WHERE channel_id = ? AND key_index = ? AND model_name = ? AND hour = ?');
+            Object.values(keyStatsAgg).forEach(agg => {
+                keyStatsStmt.run(
+                    agg.fixedPriceRequests, agg.fixedPriceQuota,
+                    agg.tokenBillingRequests, agg.tokenBillingQuota,
+                    agg.channelId, agg.keyIndex, agg.modelName, agg.hour
+                );
+            });
+            keyStatsStmt.finalize();
+
+            persistCheckpoint();
+
+            db.run('COMMIT', err => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    });
+}
+
+// Capture a stable id boundary before normal sync advances the watermark.
+// This makes the additive backfill resumable without double-counting new logs.
+async function captureBillingTypeBackfillBoundary() {
+    const done = await getMeta(BILLING_TYPE_BACKFILL_DONE_KEY);
+    if (done) {
+        return { skipped: true };
+    }
+
+    const existing = await getMeta(BILLING_TYPE_BACKFILL_END_KEY);
+    if (existing) {
+        return { skipped: true, endId: parseInt(existing, 10) };
+    }
+
+    const lastIdStr = await getMeta('last_synced_id');
+    const lastSyncedId = lastIdStr ? parseInt(lastIdStr, 10) : 0;
+    if (!lastSyncedId) {
+        await setMeta(BILLING_TYPE_BACKFILL_DONE_KEY, new Date().toISOString());
+        return { skipped: true };
+    }
+
+    await setMeta(BILLING_TYPE_BACKFILL_END_KEY, String(lastSyncedId));
+    await setMeta(BILLING_TYPE_BACKFILL_PROGRESS_KEY, '0');
+    return { captured: true, endId: lastSyncedId };
+}
+
+async function stepBillingTypeBackfill() {
+    const done = await getMeta(BILLING_TYPE_BACKFILL_DONE_KEY);
+    if (done) {
+        return { skipped: true };
+    }
+
+    const endIdStr = await getMeta(BILLING_TYPE_BACKFILL_END_KEY);
+    if (!endIdStr) {
+        return { skipped: true };
+    }
+    const endId = parseInt(endIdStr, 10);
+    if (!Number.isFinite(endId) || endId <= 0) {
+        return { skipped: true };
+    }
+
+    const progressStr = await getMeta(BILLING_TYPE_BACKFILL_PROGRESS_KEY);
+    let progressId = progressStr ? parseInt(progressStr, 10) : 0;
+    if (!Number.isFinite(progressId) || progressId < 0) {
+        progressId = 0;
+    }
+    if (progressId >= endId) {
+        await setMeta(BILLING_TYPE_BACKFILL_DONE_KEY, new Date().toISOString());
+        return { skipped: true, completed: true };
+    }
+
+    let processedLogs = 0;
+    let processedBatches = 0;
+    while (processedBatches < MAX_BATCHES_PER_RUN) {
+        const logs = await prisma.log.findMany({
+            select: LOG_SELECT,
+            where: {
+                id: { gt: progressId, lte: endId },
+                type: { in: [LOG_TYPE_CONSUME, LOG_TYPE_ERROR] }
+            },
+            take: BATCH_SIZE,
+            orderBy: { id: 'asc' }
+        });
+
+        if (logs.length === 0) {
+            break;
+        }
+
+        processedBatches += 1;
+        processedLogs += logs.length;
+        console.log('[BACKFILL-BILLING] Batch ' + processedBatches + ': fetched ' + logs.length +
+            ' logs (id>' + progressId + ', <=' + endId + ')');
+        progressId = logs[logs.length - 1].id;
+        await writeBillingTypeBatch(logs, { progressId, endId, completed: progressId >= endId });
+    }
+
+    return { processedLogs, processedBatches, progressId, endId, completed: progressId >= endId };
+}
+
 // Backfill key_stats from historical logs. key_stats was introduced after the
 // extended-metrics backfill, so its boundary must follow the current
 // last_synced_id rather than the one-time extended backfill snapshot. Only
@@ -1128,7 +1396,8 @@ function updateKeyStatsOnly(logs) {
                 quota: 0,
                 errorCount: 0,
                 latencySum: 0,
-                ...newExtendedAgg()
+                ...newExtendedAgg(),
+                ...newBillingAgg()
             };
         }
         const keyAgg = keyStatsAggregated[keyStatsKey];
@@ -1141,6 +1410,7 @@ function updateKeyStatsOnly(logs) {
         keyAgg.errorCount += log.type === LOG_TYPE_ERROR ? 1 : 0;
         keyAgg.latencySum += log.useTime || 0;
         accumulateExtended(keyAgg, metrics, log);
+        accumulateBilling(keyAgg, metrics, log);
     });
 
     if (Object.keys(keyStatsAggregated).length === 0) {
@@ -1156,9 +1426,10 @@ function updateKeyStatsOnly(logs) {
                     prompt_tokens, completion_tokens, cache_hit_tokens, tokens, request_count, quota, error_count, avg_latency,
                     cache_creation_tokens, image_tokens, audio_tokens, reasoning_requests,
                     tool_calls, tool_quota, success_count,
-                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens
+                    first_token_ms_sum, first_token_count, use_time_sum_sec, total_input_tokens,
+                    fixed_price_requests, fixed_price_quota, token_billing_requests, token_billing_quota
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(channel_id, key_index, model_name, hour)
                 DO UPDATE SET
                     prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -1183,7 +1454,11 @@ function updateKeyStatsOnly(logs) {
                     first_token_ms_sum = first_token_ms_sum + excluded.first_token_ms_sum,
                     first_token_count = first_token_count + excluded.first_token_count,
                     use_time_sum_sec = use_time_sum_sec + excluded.use_time_sum_sec,
-                    total_input_tokens = total_input_tokens + excluded.total_input_tokens
+                    total_input_tokens = total_input_tokens + excluded.total_input_tokens,
+                    fixed_price_requests = fixed_price_requests + excluded.fixed_price_requests,
+                    fixed_price_quota = fixed_price_quota + excluded.fixed_price_quota,
+                    token_billing_requests = token_billing_requests + excluded.token_billing_requests,
+                    token_billing_quota = token_billing_quota + excluded.token_billing_quota
             `);
             Object.values(keyStatsAggregated).forEach(agg => {
                 const avgLatency = agg.requestCount > 0 ? Math.round(agg.latencySum / agg.requestCount) : 0;
@@ -1193,7 +1468,9 @@ function updateKeyStatsOnly(logs) {
                     agg.requestCount, agg.quota, agg.errorCount, avgLatency,
                     agg.cacheCreationTokens, agg.imageTokens, agg.audioTokens, agg.reasoningRequests,
                     agg.toolCalls, agg.toolQuota, agg.successCount,
-                    agg.firstTokenMsSum, agg.firstTokenCount, agg.useTimeSumSec, agg.totalInputTokens
+                    agg.firstTokenMsSum, agg.firstTokenCount, agg.useTimeSumSec, agg.totalInputTokens,
+                    agg.fixedPriceRequests, agg.fixedPriceQuota,
+                    agg.tokenBillingRequests, agg.tokenBillingQuota
                 );
             });
             stmt.finalize();
@@ -1280,6 +1557,9 @@ module.exports = {
     captureExtendedBackfillBoundary,
     stepExtendedMetricsBackfill,
     stepTotalInputBackfill,
+    captureBillingTypeBackfillBoundary,
+    stepBillingTypeBackfill,
+    writeBillingTypeBatch,
     parseCacheHitTokens,
     getRebuildHourRange,
     updateStats,

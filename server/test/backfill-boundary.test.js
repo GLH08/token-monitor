@@ -12,6 +12,9 @@ const {
     captureExtendedBackfillBoundary,
     stepExtendedMetricsBackfill,
     stepKeyStatsBackfill,
+    captureBillingTypeBackfillBoundary,
+    stepBillingTypeBackfill,
+    writeBillingTypeBatch,
     prisma
 } = require('../syncer');
 
@@ -20,11 +23,15 @@ const END_KEY = 'extended_backfill_end_id_v1';
 const PROGRESS_KEY = 'extended_backfill_progress_id_v1';
 const KEY_STATS_DONE_KEY = 'key_stats_backfill_done_v1';
 const KEY_STATS_PROGRESS_KEY = 'key_stats_backfill_progress_id_v1';
+const BILLING_TYPE_DONE_KEY = 'billing_type_backfill_done_v1';
+const BILLING_TYPE_END_KEY = 'billing_type_backfill_end_id_v1';
+const BILLING_TYPE_PROGRESS_KEY = 'billing_type_backfill_progress_id_v1';
 
 async function resetBackfillMeta() {
     await db.runAsync(
-        `DELETE FROM meta WHERE key IN (?, ?, ?, ?, ?, 'last_synced_id')`,
-        [DONE_KEY, END_KEY, PROGRESS_KEY, KEY_STATS_DONE_KEY, KEY_STATS_PROGRESS_KEY],
+        `DELETE FROM meta WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?, 'last_synced_id')`,
+        [DONE_KEY, END_KEY, PROGRESS_KEY, KEY_STATS_DONE_KEY, KEY_STATS_PROGRESS_KEY,
+            BILLING_TYPE_DONE_KEY, BILLING_TYPE_END_KEY, BILLING_TYPE_PROGRESS_KEY],
     );
 }
 
@@ -74,6 +81,95 @@ test('stepExtendedMetricsBackfill skips once the backfill is marked done', async
     await db.runAsync("INSERT INTO meta(key, value) VALUES(?, 'now')", [DONE_KEY]);
     const result = await stepExtendedMetricsBackfill();
     assert.strictEqual(result.skipped, true);
+});
+
+test('captureBillingTypeBackfillBoundary persists a stable watermark', async () => {
+    await resetBackfillMeta();
+    await db.runAsync("INSERT INTO meta(key, value) VALUES('last_synced_id', '700')");
+    const result = await captureBillingTypeBackfillBoundary();
+    assert.strictEqual(result.captured, true);
+    assert.strictEqual(result.endId, 700);
+    assert.strictEqual(await getMetaValue(BILLING_TYPE_END_KEY), '700');
+    assert.strictEqual(await getMetaValue(BILLING_TYPE_PROGRESS_KEY), '0');
+});
+
+test('stepBillingTypeBackfill updates existing aggregate rows and completes', async () => {
+    await resetBackfillMeta();
+    await db.runAsync("INSERT INTO meta(key, value) VALUES('last_synced_id', '700')");
+    await captureBillingTypeBackfillBoundary();
+
+    const log = {
+        id: 700, createdAt: 1710000100, channelId: 11, modelName: 'tiered',
+        tokenId: 4, group: 'default', promptTokens: 20, completionTokens: 5,
+        quota: 800, useTime: 1, type: 2,
+        other: JSON.stringify({ billing_mode: 'tiered_expr', billing_unit: 'request' })
+    };
+    const { updateStats } = require('../syncer');
+    await updateStats([log]);
+    await db.runAsync(
+        'UPDATE stats SET fixed_price_requests = 0, fixed_price_quota = 0 ' +
+        "WHERE channel_id = 11 AND model_name = 'tiered'"
+    );
+    await db.runAsync(
+        'UPDATE usage_stats SET fixed_price_requests = 0, fixed_price_quota = 0 ' +
+        "WHERE channel_id = 11 AND model_name = 'tiered' AND token_id = 4"
+    );
+
+    const originalFindMany = prisma.log.findMany;
+    let calls = 0;
+    prisma.log.findMany = async (args) => {
+        calls += 1;
+        assert.strictEqual(args.where.id.lte, 700);
+        return calls === 1 ? [log] : [];
+    };
+
+    try {
+        const result = await stepBillingTypeBackfill();
+        assert.strictEqual(result.completed, true);
+        assert.ok(calls >= 1);
+        assert.ok(await getMetaValue(BILLING_TYPE_DONE_KEY));
+    } finally {
+        prisma.log.findMany = originalFindMany;
+    }
+
+    const statsRow = await db.getAsync("SELECT fixed_price_requests, fixed_price_quota FROM stats WHERE channel_id = 11 AND model_name = 'tiered'");
+    const usageRow = await db.getAsync("SELECT fixed_price_requests, fixed_price_quota FROM usage_stats WHERE channel_id = 11 AND model_name = 'tiered' AND token_id = 4");
+    assert.deepEqual(statsRow, { fixed_price_requests: 1, fixed_price_quota: 800 });
+    assert.deepEqual(usageRow, { fixed_price_requests: 1, fixed_price_quota: 800 });
+});
+
+test('writeBillingTypeBatch commits progress and done flags atomically', async () => {
+    await resetBackfillMeta();
+    await db.runAsync("INSERT INTO meta(key, value) VALUES('last_synced_id', '700')");
+    await captureBillingTypeBackfillBoundary();
+
+    const log = {
+        id: 700, createdAt: 1710000100, channelId: 11, modelName: 'tiered',
+        tokenId: 4, group: 'default', promptTokens: 20, completionTokens: 5,
+        quota: 800, useTime: 1, type: 2,
+        other: JSON.stringify({ billing_mode: 'tiered_expr', billing_unit: 'request' })
+    };
+    const { updateStats } = require('../syncer');
+    await updateStats([log]);
+    await db.runAsync(
+        'UPDATE stats SET fixed_price_requests = 0, fixed_price_quota = 0 ' +
+        "WHERE channel_id = 11 AND model_name = 'tiered'"
+    );
+
+    // A completed batch must persist BOTH the progress checkpoint and the
+    // done flag in the same transaction as the aggregate updates.
+    const result = await writeBillingTypeBatch(
+        [log],
+        { progressId: 700, endId: 700, completed: true }
+    );
+    assert.strictEqual(await getMetaValue(BILLING_TYPE_PROGRESS_KEY), '700');
+    assert.ok(await getMetaValue(BILLING_TYPE_DONE_KEY));
+
+    const statsRow = await db.getAsync(
+        "SELECT fixed_price_requests, fixed_price_quota FROM stats WHERE channel_id = 11 AND model_name = 'tiered'"
+    );
+    assert.deepEqual(statsRow, { fixed_price_requests: 1, fixed_price_quota: 800 });
+    assert.strictEqual(result, undefined);
 });
 
 test('stepKeyStatsBackfill uses current last_synced_id instead of the stale extended boundary', async () => {
